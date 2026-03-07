@@ -1,9 +1,9 @@
 # Legal Disclaimer & Algorithm Scope
 
-**Last Updated: March 2026**
+**Last Updated: March 8, 2026**
 
 ## 1. Scope of Codebase
-The source code contained in this repository (`agent-commerce-core`) is strictly defined as a **Data Normalization Engine**.
+The source code contained in this repository (`agent-commerce-core`) is strictly defined as a **Data Normalization Engine** for Project GHOST SHIP.
 Its primary function is to:
 - Scrape public web data from specified URLs.
 - Parse HTML/DOM structures.
