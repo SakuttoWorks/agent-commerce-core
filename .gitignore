@@ -1,4 +1,4 @@
-# === Python Core (ビルド・キャッシュ) ===
+# === Python Core (Build & Cache) ===
 __pycache__/
 *.py[cod]
 *$py.class
@@ -11,8 +11,8 @@ dist/
 *.egg
 MANIFEST
 
-# === Environments (最重要: 0円運用のためのセキュリティ) ===
-# 秘密鍵、APIキー、Polar.shのトークンなどを絶対に守ります
+# === Environments (Critical Security: Zero Trust) ===
+# Blocks private keys, API secrets, and Polar.sh tokens
 .env
 .env.local
 .envrc
@@ -21,8 +21,8 @@ env/
 venv/
 ENV/
 
-# === Editor / IDE (VS Code) ===
-# 2026年基準: 共通設定はあえてGitに含め、個人の一時ファイルだけを無視します
+# === Editor / IDE (VS Code Shared Config) ===
+# 2026 Standard: Share settings/tasks, ignore local history
 .vscode/
 !.vscode/settings.json
 !.vscode/tasks.json
@@ -30,7 +30,7 @@ ENV/
 !.vscode/extensions.json
 .history/
 
-# === Testing / Linting (開発の健全性) ===
+# === Testing / Linting (Dev Health) ===
 .pytest_cache/
 .tox/
 .nox/
@@ -39,7 +39,7 @@ ENV/
 .ruff_cache/
 .mypy_cache/
 
-# === Operating System (OS由来のゴミ) ===
+# === Operating System ===
 .DS_Store
 Thumbs.db
 desktop.ini
