@@ -1,28 +1,28 @@
 import os
-
-# さきほど移動したGuardianをインポート
-from app.utils.guardian import BudgetGuardian
 from dotenv import load_dotenv
 from tavily import TavilyClient
 
+# Import Guardian for budget and cache control
+from app.utils.guardian import BudgetGuardian
+
 load_dotenv()
 
-# Guardianのインスタンス化 (キャッシュと予算管理)
+# Initialize Guardian (Cache & Budget Management)
 guardian = BudgetGuardian()
 
-# ツール定義
+# LLM Function Definition
 TAVILY_TOOL_DEFINITION = {
     "type": "function",
     "function": {
         "name": "search_web",
-        # 修正箇所: 「株価」を削除し、「公共データ」や「ドキュメント」に変更
-        "description": "Web上の公開情報を検索・取得します。技術ドキュメント、自治体情報、ニュースなど。",
+        # Strictly defined scope: Public data only, no financial advice.
+        "description": "Retrieves public web information for data normalization. Targets technical documentation, municipal data, and general news.",
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "検索したいキーワードや質問文",
+                    "description": "The search keyword or semantic query string.",
                 }
             },
             "required": ["query"],
@@ -33,28 +33,28 @@ TAVILY_TOOL_DEFINITION = {
 
 def search_web(query: str):
     """
-    Tavily APIを実行する関数 (Guardianによる保護付き)
+    Executes Tavily API search with Guardian protection (Budget & Cache).
     """
-    # 1. キャッシュチェック (お金の節約)
+    # 1. Cache Check (Cost Optimization)
     cached_result = guardian.check_cache(query)
     if cached_result:
         return f"(Cache Hit) {cached_result}"
 
-    # 2. 予算(Kill Switch)チェック
+    # 2. Budget (Kill Switch) Check
     if not guardian.check_budget_and_increment():
-        return "Error: Daily search budget exceeded. Please try again tomorrow."
+        return "Error: Daily search budget exceeded. Limit enforced by Guardian."
 
-    # 3. API実行
+    # 3. API Execution
     api_key = os.getenv("TAVILY_API_KEY")
     if not api_key:
         return "Error: TAVILY_API_KEY not found."
 
     try:
         client = TavilyClient(api_key=api_key)
-        # qna_search=True: AI向けの回答生成モード
+        # qna_search=True: Optimized for RAG context retrieval
         result = client.qna_search(query=query)
 
-        # 4. 結果をキャッシュに保存
+        # 4. Save to Cache
         guardian.save_cache(query, result)
 
         return result
