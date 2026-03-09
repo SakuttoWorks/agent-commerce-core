@@ -1,0 +1,23 @@
+# --- Web Framework & Server ---
+# standard には uvicorn や内部パーツが含まれるため、これ1つで起動可能です
+fastapi[standard]>=0.115.0
+uvicorn>=0.30.0
+
+# --- Pydantic (重要) ---
+# main.py で ConfigDict を使用しているため、V2以上が必須です
+pydantic>=2.10.0
+pydantic-settings>=2.4.0
+
+# --- LLM & AI Tools ---
+litellm>=1.81.0
+tavily-python>=0.7.0
+google-generativeai>=0.8.0
+
+# --- Infrastructure & Database ---
+upstash-redis>=1.6.0
+supabase>=2.11.0
+
+# --- Utilities ---
+python-dotenv>=1.0.0
+# Dockerfileで libmagic1 を入れているため、これが必要です
+python-magic>=0.4.27
