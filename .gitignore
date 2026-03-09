@@ -15,20 +15,29 @@ MANIFEST
 # Blocks private keys, API secrets, and Polar.sh tokens
 .env
 .env.local
+.env.*
 .envrc
 .venv
 env/
 venv/
 ENV/
 
+# === Cloud & Secrets (Safety Net) ===
+# Explicitly block Google Cloud Service Account Keys
+*service-account*.json
+*gcp-key*.json
+*.pem
+*.key
+
 # === Editor / IDE (VS Code Shared Config) ===
 # 2026 Standard: Share settings/tasks, ignore local history
-.vscode/
+.vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
 .history/
+.idea/
 
 # === Testing / Linting (Dev Health) ===
 .pytest_cache/
@@ -38,6 +47,17 @@ ENV/
 .cache
 .ruff_cache/
 .mypy_cache/
+htmlcov/
+
+# === Runtime / Logs (Privacy & Compliance) ===
+# Prevent uploading local logs or scraped data (GDPR/EU AI Act)
+*.log
+logs/
+data/
+temp/
+output/
+*.sqlite
+*.db
 
 # === Operating System ===
 .DS_Store
