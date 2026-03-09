@@ -1,23 +1,27 @@
+# --- Core Engine Dependencies (Agent-Commerce-OS) ---
+
 # --- Web Framework & Server ---
-# standard には uvicorn や内部パーツが含まれるため、これ1つで起動可能です
+# "standard" includes uvicorn and optional dependencies for production
 fastapi[standard]>=0.115.0
 uvicorn>=0.30.0
 
-# --- Pydantic (重要) ---
-# main.py で ConfigDict を使用しているため、V2以上が必須です
+# --- Data Validation & Schema ---
+# Version 2.10+ required for ConfigDict and strict type enforcement
 pydantic>=2.10.0
 pydantic-settings>=2.4.0
 
-# --- LLM & AI Tools ---
+# --- AI & Search Integration ---
+# Orchestration layer for LLM interactions
 litellm>=1.81.0
+# Search API for external data retrieval (non-financial context)
 tavily-python>=0.7.0
 google-generativeai>=0.8.0
 
-# --- Infrastructure & Database ---
+# --- Infrastructure & State Management ---
 upstash-redis>=1.6.0
 supabase>=2.11.0
 
 # --- Utilities ---
 python-dotenv>=1.0.0
-# Dockerfileで libmagic1 を入れているため、これが必要です
+# Requires libmagic1 system dependency (see Dockerfile)
 python-magic>=0.4.27
