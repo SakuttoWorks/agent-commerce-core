@@ -9,7 +9,7 @@ While the [Gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) (Lay
 
 - **Semantic Extraction**: Advanced HTML-to-Text parsing and DOM analysis for high-accuracy data recovery from complex web sources.
 - **RAG-Ready Output**: Generating LLM-native Markdown and JSON optimized for vector database ingestion and Retrieval-Augmented Generation (RAG) workflows.
-- **Strict Schema Alignment**: Normalizing public utility and business data into validated Pydantic models for downstream automation and agentic tool-use.
+- **Strict Schema Alignment**: Normalizing public utility and civic web data into validated Pydantic models for downstream automation and agentic tool-use.
 
 ## 🛠 Tech Stack (Core Specifications)
 - **Runtime**: Python 3.12 (Standardized for 2026 Production Environments).
