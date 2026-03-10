@@ -15,7 +15,7 @@ TAVILY_TOOL_DEFINITION = {
     "type": "function",
     "function": {
         "name": "search_web",
-        # Strictly defined scope: Public data only, no financial advice.
+        # Strictly defined scope: Public data extraction and normalization only.
         "description": "Retrieves public web information for data normalization. Targets technical documentation, municipal data, and general news.",
         "parameters": {
             "type": "object",
