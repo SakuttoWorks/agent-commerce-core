@@ -13,7 +13,7 @@ pydantic-settings>=2.4.0
 # --- AI & Search Integration ---
 # Orchestration layer for LLM interactions
 litellm>=1.81.0
-# Search API for external data retrieval (non-financial context)
+# Search API for external data retrieval (public data normalization)
 tavily-python>=0.7.0
 google-generativeai>=0.8.0
 
