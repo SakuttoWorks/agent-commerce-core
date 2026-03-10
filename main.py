@@ -392,8 +392,8 @@ def serve_mcp_json():
     return JSONResponse(status_code=404, content={"error": "Not configured"})
 
 
-@app.post("/webhook/revenue")
-async def handle_revenue_webhook(request: Request):
+@app.post("/webhook/usage")
+async def handle_metering_webhook(request: Request):
     return {"status": "received"}
 
 
