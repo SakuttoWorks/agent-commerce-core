@@ -1,0 +1,31 @@
+# --- 1. Python & Virtual Environment (最重要: デプロイ高速化) ---
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- 2. Development Tools & Security ---
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+.env
+
+# --- 3. Project Specific Unnecessary Files (コンテナには不要) ---
+supabase/
+vscode起動時に毎回すること.txt
+README.md
+mcp.json
+llms.txt
