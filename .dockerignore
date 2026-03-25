@@ -1,4 +1,4 @@
-# --- 1. Python & Virtual Environment (最重要: デプロイ高速化) ---
+# --- 1. Python & Virtual Environment (Critical: Deployment Speed Optimization) ---
 .venv/
 venv/
 env/
@@ -23,9 +23,8 @@ dist/
 .DS_Store
 .env
 
-# --- 3. Project Specific Unnecessary Files (コンテナには不要) ---
+# --- 3. Project Specific Unnecessary Files (Not required in container) ---
 supabase/
-vscode起動時に毎回すること.txt
 README.md
 mcp.json
 llms.txt
