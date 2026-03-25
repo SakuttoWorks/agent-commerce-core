@@ -1,9 +1,8 @@
-# --- Core Engine Dependencies (Agent-Commerce-OS) ---
+# --- Core Engine Dependencies (Layer B: Agent-Commerce-OS) ---
 
 # --- Web Framework & Server ---
 # "standard" includes uvicorn and optional dependencies for production
 fastapi[standard]>=0.115.0
-uvicorn>=0.30.0
 
 # --- Data Validation & Schema ---
 # Version 2.10+ required for ConfigDict and strict type enforcement
@@ -11,17 +10,22 @@ pydantic>=2.10.0
 pydantic-settings>=2.4.0
 
 # --- AI & Search Integration ---
-# Orchestration layer for LLM interactions
-litellm>=1.81.0
-# Search API for external data retrieval (public data normalization)
+# Google's official SDK for Gemini 3 series / 1.5 Pro
+google-genai>=1.0.0
+# Search API for external data retrieval (non-financial context)
 tavily-python>=0.7.0
-google-generativeai>=0.8.0
 
-# --- Infrastructure & State Management ---
-upstash-redis>=1.6.0
-supabase>=2.11.0
+# --- Advanced Extraction Modules ---
+# [NEW] High-performance async HTTP client for Jina Reader & Firecrawl APIs
+httpx>=0.27.0
+
+# --- Security & Authentication ---
+# PyJWT is the modern, maintained alternative to python-jose for Zero Trust verification
+PyJWT>=2.8.0
 
 # --- Utilities ---
 python-dotenv>=1.0.0
-# Requires libmagic1 system dependency (see Dockerfile)
+# Requires libmagic1 system dependency (Consider migrating to 'filetype' later)
 python-magic>=0.4.27
+# Lightweight HTML to Markdown converter for pre-processing Tavily raw data
+html2text>=2024.2.26
