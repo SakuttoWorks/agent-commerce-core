@@ -63,3 +63,9 @@ output/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# === Legacy / Project Specific (Layer B Cleanup) ===
+# Prevent accidental inclusion of legacy artifacts into the repository
+supabase/
+mcp.json
+llms.txt
