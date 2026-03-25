@@ -1,0 +1,23 @@
+[project]
+description = "Project GHOST SHIP - Core Engine (Stateless Data Normalization)"
+name = "gs-mcp-core"
+readme = "README.md"
+requires-python = ">=3.12"
+version = "3.0.0"
+
+dependencies = [
+  "fastapi[standard]>=0.115.0",
+  "pydantic>=2.10.0",
+  "pydantic-settings>=2.4.0",
+  "google-genai>=1.0.0",
+  "tavily-python>=0.7.0",
+  "httpx>=0.27.0",
+  "PyJWT>=2.8.0",
+  "python-dotenv>=1.0.0",
+  "python-magic>=0.4.27",
+  "html2text>=2024.2.26",
+]
+
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
