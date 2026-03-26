@@ -41,7 +41,7 @@ Any request lacking the following strictly enforced headers will be instantly dr
 *Must be routed through the internal network with Gateway headers.*
 
 ```bash
-curl -X POST "https://<YOUR_CLOUD_RUN_URL>/v1/normalize_web_data" \
+curl -X POST "[https://agent-commerce-core-xd36uwybpa-an.a.run.app/v1/normalize_web_data](https://agent-commerce-core-xd36uwybpa-an.a.run.app/v1/normalize_web_data)" \
      -H "Content-Type: application/json" \
      -H "X-Internal-Secret: <INTERNAL_GATEWAY_SECRET>" \
      -H "X-Tenant-Id: <HASHED_TENANT_ID>" \
@@ -83,8 +83,8 @@ Strictly adheres to 2026 Data Privacy standards (GDPR/EU AI Act). Our engine onl
 
 ## 🔗 Project Ecosystem
 
-- SakuttoWorks Profile - Governance & Project Roadmap.
-- agent-commerce-gateway - The Secure Edge Proxy (Layer A).
-- ghost-ship-mcp-server - The AI Agent Interface.
+- [SakuttoWorks Profile](https://github.com/SakuttoWorks) - Governance & Project Roadmap.
+- [agent-commerce-gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) - The Secure Edge Proxy (Layer A).
+- [ghost-ship-mcp-server](https://github.com/SakuttoWorks/ghost-ship-mcp-server) - The AI Agent Interface.
 
 © 2026 Sakutto Works - Enabling the Semantic Web through Reliable Data Normalization.
