@@ -12,6 +12,8 @@ While the [Gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) (Lay
 - **RAG-Ready Output**: Generating LLM-native Markdown and structured JSON optimized for vector database ingestion and AI agent workflows.
 - **Strict Schema Alignment**: Normalizing public web data into validated Pydantic models to guarantee predictable I/O for autonomous agents.
 
+---
+
 ## 🛠 Tech Stack (Core Specifications)
 
 - **Runtime**: Python 3.12+ (Standardized for 2026 Production Environments).
@@ -19,6 +21,8 @@ While the [Gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) (Lay
 - **Build System**: [uv](https://github.com/astral-sh/uv) - Ultra-fast multi-stage Docker builds for minimal container footprints.
 - **Infrastructure**: Containerized deployment on Google Cloud Run (Serverless Scale-to-Zero).
 - **Security**: PyJWT-based dynamic tenant isolation.
+
+---
 
 ## 🛡 Zero Trust Inter-service Communication
 
@@ -31,6 +35,8 @@ Any request lacking the following strictly enforced headers will be instantly dr
 2. `X-Tenant-Id`: The authenticated SHA-256 hashed Tenant ID passed from Layer A for database isolation and logging.
 
 *Note: End-user API token validation (Polar.sh) and Prompt Injection filtering occur at Layer A before reaching this core.*
+
+---
 
 ## 🚀 API Endpoint & Schema Definition
 
@@ -77,15 +83,20 @@ Designed for autonomous AI agents to self-correct based on standardized instruct
 }
 ```
 
+---
+
 ## ⚖️ Ethical Compliance
 
 Strictly adheres to 2026 Data Privacy standards (GDPR/EU AI Act). Our engine only processes publicly accessible web information and operates completely stateless. It does not evaluate, store, or train on user prompts, and assumes no liability for the downstream utilization of the extracted data.
+
+---
 
 ## 🔗 Project Ecosystem
 
 - [SakuttoWorks Profile](https://github.com/SakuttoWorks) - Governance & Project Roadmap.
 - [agent-commerce-gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) - The Secure Edge Proxy (Layer A).
 
+---
 
 ## 💖 Support the Project
 
