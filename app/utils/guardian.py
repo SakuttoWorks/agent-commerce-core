@@ -10,7 +10,8 @@ logger = logging.getLogger("agent-commerce-core.guardian")
 # ==========================================
 # 1. Zero Trust Security (Gateway Authentication)
 # ==========================================
-INTERNAL_SECRET = os.getenv("INTERNAL_AUTH_SECRET", "ghost-ship-secret-2026")
+# [FIX] Removed insecure fallback secret. Must be securely injected via Secret Manager.
+INTERNAL_SECRET = os.getenv("INTERNAL_AUTH_SECRET")
 
 
 async def verify_gateway(
@@ -25,7 +26,8 @@ async def verify_gateway(
     FastAPI Dependency: Ensures the request is genuinely routed through Layer A.
     Returns the tenant_id for logging/isolation purposes if successful.
     """
-    if x_internal_secret != INTERNAL_SECRET:
+    # [FIX] Fails closed if INTERNAL_SECRET is entirely missing from environment
+    if not INTERNAL_SECRET or x_internal_secret != INTERNAL_SECRET:
         logger.critical(
             f"🚨 SECURITY BREACH ATTEMPT: Invalid internal secret from Tenant {x_tenant_id}"
         )
