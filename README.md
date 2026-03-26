@@ -86,7 +86,6 @@ Strictly adheres to 2026 Data Privacy standards (GDPR/EU AI Act). Our engine onl
 - [SakuttoWorks Profile](https://github.com/SakuttoWorks) - Governance & Project Roadmap.
 - [agent-commerce-gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) - The Secure Edge Proxy (Layer A).
 
----
 
 ## 💖 Support the Project
 
@@ -94,5 +93,6 @@ If this infrastructure helped you save time or scale your AI agents, consider su
 
 [![Support via Polar.sh](https://img.shields.io/badge/Support_via-Polar.sh-blue?style=for-the-badge)](https://buy.polar.sh/polar_cl_ZI9H5fL8dQqcormOadiGDFDpS2Sxd1jT05jTX1vStWi)
 [![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=github)](https://github.com/sponsors/SakuttoWorks)
+
 
 © 2026 Sakutto Works - Enabling the Semantic Web through Reliable Data Normalization.
