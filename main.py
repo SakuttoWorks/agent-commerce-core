@@ -2,41 +2,20 @@ import json
 import logging
 import os
 import sys
-import uuid
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Annotated, Any, Dict, Optional, Union
 
-# --- Project Imports ---
-# Graceful degradation for local development vs cloud production
-try:
-    from app.tools.web_search import TAVILY_TOOL_DEFINITION, search_web
-    from app.utils.guardian import BudgetGuardian
-except ImportError:
-    logging.warning("⚠️ Local modules not found. Using mock objects for startup.")
-    TAVILY_TOOL_DEFINITION = {}
+import httpx
 
-    def search_web(query):
-        return "Search module missing."
-
-    class BudgetGuardian:
-        def check_cache(self, q):
-            return None
-
-        def check_budget_and_increment(self):
-            return True
-
-        def save_cache(self, q, d):
-            pass
-
-
+# --- Cleaned Project Imports ---
+from app.models.schemas import AgentSemanticError, NormalizeRequest, NormalizeResponse
+from app.tools.gemini_normalizer import normalizer
+from app.tools.web_search import search_web
+from app.utils.guardian import data_guardian, verify_gateway
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
-from litellm import completion
-from pydantic import BaseModel, ConfigDict, Field
-from upstash_redis import Redis
+from fastapi.responses import JSONResponse
 
 # --- 1. Environment & Structured Logging ---
 load_dotenv()
@@ -46,7 +25,7 @@ class JsonFormatter(logging.Formatter):
     def format(self, record):
         log_obj = {
             "severity": record.levelname,
-            "time": datetime.fromtimestamp(record.created, timezone.utc).isoformat(),
+            "time": datetime.now(timezone.utc).isoformat(),
             "message": record.getMessage(),
             "module": record.module,
         }
@@ -58,86 +37,15 @@ handler.setFormatter(JsonFormatter())
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
 root_logger.addHandler(handler)
-logger = logging.getLogger("agent-commerce-core")
+logger = logging.getLogger("agent-commerce-core.main")
 
-# Constants
-ADMIN_KEY = os.getenv("ADMIN_KEY")
-CORE_SECRET_KEY = os.getenv("CORE_SECRET_KEY")
-INTERNAL_AUTH_SECRET = os.getenv("INTERNAL_AUTH_SECRET")
-UPSTASH_URL = os.getenv("UPSTASH_REDIS_REST_URL")
-UPSTASH_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN")
-
-LICENSE_EXPIRY_SECONDS = 2678400  # 31 days
-RATE_LIMIT_PER_MINUTE = 60
-DEFAULT_MODEL = "gemini/gemini-1.5-flash"
-
-# Global State (Managed by Lifespan)
-redis_client: Optional[Redis] = None
-guardian: Optional[BudgetGuardian] = None
-STATIC_FILES: Dict[str, str] = {}
-
-
-# --- 2. Lifespan Management ---
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global redis_client, guardian, STATIC_FILES
-    logger.info("🚀 Starting Agent-Commerce-OS Core Engine...")
-
-    if UPSTASH_URL and UPSTASH_TOKEN:
-        try:
-            redis_client = Redis(url=UPSTASH_URL, token=UPSTASH_TOKEN)
-            if redis_client.ping():
-                logger.info("✅ Connected to Upstash Redis")
-        except Exception as e:
-            logger.error(f"❌ Redis Connection Failed: {e}")
-            redis_client = None
-    else:
-        logger.warning("⚠️ Running in Stateless Mode (No Redis)")
-
-    guardian = BudgetGuardian()
-
-    for filename in ["llms.txt", "mcp.json"]:
-        if os.path.exists(filename):
-            with open(filename, "r", encoding="utf-8") as f:
-                STATIC_FILES[filename] = f.read()
-            logger.info(f"📄 Loaded {filename} into memory")
-
-    yield
-    logger.info("💤 Shutting down Core Engine...")
-
-
-# --- 3. Application Definition ---
+# --- 2. Application Definition ---
 app = FastAPI(
     title="Agent-Commerce-OS Core",
-    description="Layer B: Intelligent Factory & Data Normalization Engine",
-    version="2.1.0",
-    lifespan=lifespan,
-    docs_url="/docs",  # Enabled for public API documentation review
+    description="Layer B: High-performance Data Normalization Engine (Stateless)",
+    version="3.0.0",
+    docs_url="/docs",
 )
-
-
-# Security Middleware
-@app.middleware("http")
-async def verify_secret(request: Request, call_next):
-    # Allow public health checks and docs
-    if request.url.path in ["/", "/docs", "/openapi.json", "/favicon.ico"]:
-        return await call_next(request)
-
-    expected_secret = os.getenv("INTERNAL_AUTH_SECRET")
-    actual_secret = request.headers.get("X-Internal-Secret")
-
-    # Skip if secret is not configured (Local Dev)
-    if not expected_secret:
-        return await call_next(request)
-
-    if not actual_secret or actual_secret != expected_secret:
-        logger.warning(f"⛔ Unauthorized direct access attempt to {request.url.path}")
-        return JSONResponse(
-            status_code=401, content={"detail": "Unauthorized: Invalid Secret"}
-        )
-
-    return await call_next(request)
-
 
 app.add_middleware(
     CORSMiddleware,
@@ -145,256 +53,226 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["x-budget-remaining", "x-token-cost", "x-computation-time"],
 )
 
 
-# --- Models ---
-class AgentRequest(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
-    query: Annotated[
-        str, Field(min_length=1, max_length=10000, description="User intent")
-    ]
-    model: str = Field(default=DEFAULT_MODEL)
-    context: Dict[str, Any] = Field(default_factory=dict)
+# --- 3. Semantic Error Handlers (AEO) ---
+@app.exception_handler(HTTPException)
+async def semantic_http_exception_handler(request: Request, exc: HTTPException):
+    """Translates standard HTTP errors into AI-friendly Semantic Errors."""
+    error_type = "api_error"
+    instruction = "Please review your request parameters and try again."
 
-
-class NormalizeRequest(BaseModel):
-    url: str = Field(..., description="Target URL to scrape and normalize")
-    format_type: str = Field("markdown", description="Target output format")
-
-
-# --- 4. Auth & Security Logic ---
-async def verify_security(
-    x_api_key: Optional[str] = Header(None, alias="x-api-key"),
-    x_service_auth: Optional[str] = Header(None, alias="X-Service-Auth"),
-):
-    if CORE_SECRET_KEY and x_service_auth == CORE_SECRET_KEY:
-        return "edge-authenticated"
-    if ADMIN_KEY and x_api_key == ADMIN_KEY:
-        return "admin-debug"
-    if not redis_client:
-        return "dev-mode"
-
-    if not x_api_key:
-        raise HTTPException(status_code=401, detail="⛔ Missing API Key")
-
-    if not redis_client.exists(x_api_key):
-        raise HTTPException(status_code=403, detail="⛔ Invalid License Key")
-
-    limit_key = f"rate_limit:{x_api_key}"
-    current_usage = redis_client.incr(limit_key)
-    if current_usage == 1:
-        redis_client.expire(limit_key, 60)
-
-    if current_usage > RATE_LIMIT_PER_MINUTE:
-        raise HTTPException(status_code=429, detail="⏳ Rate Limit Exceeded")
-
-    return x_api_key
-
-
-# --- 5. Endpoints ---
-
-
-@app.get("/")
-async def health_check():
-    return {"status": "online", "service": "Agent-Commerce-OS Core", "version": "2.1.0"}
-
-
-# --- PUBLIC: Normalization Endpoint (Infrastructure-focused) ---
-@app.post("/v1/normalize_web_data")
-async def normalize_web_data(
-    request: NormalizeRequest,
-    background_tasks: BackgroundTasks,
-):
-    """
-    Public Endpoint for Data Normalization.
-    Converts raw HTML/Text from URL into structured JSON/Markdown.
-    """
-    request_id = f"req_{uuid.uuid4().hex[:8]}"
-
-    # --- SIMULATION: Pre-computed response for demonstration reliability ---
-    if (
-        "waste" in request.url
-        or "shinjuku" in request.url
-        or "garbage" in request.url
-        or "city" in request.url
-    ):
-        # Simulate metering log
-        background_tasks.add_task(
-            logger.info,
-            json.dumps(
-                {
-                    "event": "metering_event",
-                    "type": "data_processing",
-                    "units": 1,
-                    "status": "billable",
-                    "target": request.url,
-                }
-            ),
+    if exc.status_code == 400:
+        error_type = "bad_request"
+        instruction = "Your input was invalid. Ensure payload is correct."
+    elif exc.status_code == 403:
+        error_type = "compliance_violation"
+        instruction = (
+            "CRITICAL: Prohibited request. Halt this inquiry and change your approach."
         )
 
-        # Return standardized structured data (Example: Waste Disposal Rules)
-        return {
-            "meta": {
-                "job_id": request_id,
-                "processed_at": datetime.now(timezone.utc).isoformat(),
-                "latency_ms": 142,
-            },
-            "data": {
-                "source": request.url,
-                "category": "Data Normalization Example",
-                "items": [
-                    {
-                        "name": "Television",
-                        "disposal_fee": 2500,
-                        "currency": "JPY",
-                        "rule": "Requires pre-paid recycling ticket.",
-                    },
-                    {
-                        "name": "Bicycle",
-                        "disposal_fee": 800,
-                        "currency": "JPY",
-                        "rule": "Collection by appointment only.",
-                    },
-                ],
-                "note": "Extracted and normalized via Agent-Commerce-OS.",
-            },
-        }
+    # Check if the detail is already structured as our AgentSemanticError payload
+    if isinstance(exc.detail, dict) and "error_type" in exc.detail:
+        return JSONResponse(status_code=exc.status_code, content=exc.detail)
 
-    # Fallback response
+    semantic_error = AgentSemanticError(
+        error_type=error_type, message=str(exc.detail), agent_instruction=instruction
+    )
+    return JSONResponse(
+        status_code=exc.status_code, content=semantic_error.model_dump()
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def semantic_validation_exception_handler(
+    request: Request, exc: RequestValidationError
+):
+    semantic_error = AgentSemanticError(
+        error_type="schema_mismatch",
+        message=f"Invalid payload structure: {exc.errors()}",
+        agent_instruction="Correct your JSON payload to match the expected schema (url, format_type) before retrying.",
+    )
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=semantic_error.model_dump(),
+    )
+
+
+# --- 4. Advanced Extraction Modules ---
+async def extract_via_jina(url: str) -> str | None:
+    """Uses Jina Reader API for ultra-fast, LLM-optimized Markdown extraction."""
+    jina_key = os.getenv("JINA_API_KEY")
+    if (
+        not jina_key
+        or jina_key
+        == "jina_xxxxxxxxxxxx"
+    ):
+        return None
+
+    headers = {"Authorization": f"Bearer {jina_key}"}
+    headers["X-Return-Format"] = "markdown"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://r.jina.ai/{url}", headers=headers, timeout=30.0
+            )
+            if response.status_code == 200:
+                return response.text
+            else:
+                logger.warning(
+                    f"Jina Reader failed with status {response.status_code}."
+                )
+    except Exception as e:
+        logger.error(f"Jina Reader extraction error: {e}")
+    return None
+
+
+async def extract_via_firecrawl(url: str) -> str | None:
+    """Uses Firecrawl API as a robust secondary scraper if Jina fails."""
+    firecrawl_key = os.getenv("FIRECRAWL_API_KEY")
+    if not firecrawl_key or firecrawl_key == "fc-yyyyyyyyyyyyy":
+        return None
+
+    headers = {
+        "Authorization": f"Bearer {firecrawl_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {"url": url, "formats": ["markdown"]}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.firecrawl.dev/v1/scrape",
+                headers=headers,
+                json=payload,
+                timeout=45.0,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("success"):
+                    return data.get("data", {}).get("markdown")
+            logger.warning(f"Firecrawl failed with status {response.status_code}.")
+    except Exception as e:
+        logger.error(f"Firecrawl extraction error: {e}")
+    return None
+
+
+# --- 5. API Endpoints ---
+@app.get("/")
+async def health_check():
     return {
-        "meta": {"job_id": request_id, "status": "processed"},
-        "data": {
-            "summary": "Content normalization successful (Standard Mode).",
-            "url": request.url,
-        },
+        "status": "online",
+        "service": "Agent-Commerce-OS Layer B",
+        "version": "3.0.0",
     }
 
 
-# --- INTERNAL: Semantic Analysis (Hidden from public docs) ---
-@app.post("/analyze", include_in_schema=False)
-async def analyze_intent(
-    request: AgentRequest, auth_user: str = Depends(verify_security)
-):
-    start_time = datetime.now()
-    cost_incurred = 0.0
-    source = "internal"
-    tool_used = None
-
-    try:
-        system_instruction = (
-            f"Context: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-            "Role: Intelligent Backend for Autonomous Agents.\n"
-            "Output: JSON or Markdown strictly. No conversational filler."
-        )
-
-        messages = [
-            {"role": "system", "content": system_instruction},
-            {"role": "user", "content": request.query},
-        ]
-
-        # --- Phase 1: Tool Selection ---
-        response = completion(
-            model=request.model,
-            messages=messages,
-            tools=[TAVILY_TOOL_DEFINITION],
-            tool_choice="auto",
-            max_tokens=1024,
-            temperature=0.0,
-        )
-
-        res_msg = response.choices[0].message
-        final_content = ""
-
-        # --- Phase 2: Tool Execution ---
-        if res_msg.tool_calls:
-            tool_call = res_msg.tool_calls[0]
-            tool_used = tool_call.function.name
-            args = json.loads(tool_call.function.arguments)
-            query_str = args.get("query")
-
-            logger.info(
-                json.dumps(
-                    {"event": "tool_execution", "tool": tool_used, "query": query_str}
-                )
-            )
-
-            search_result = None
-            if guardian:
-                search_result = guardian.check_cache(query_str)
-
-            if search_result:
-                source = "cache"
-            else:
-                if guardian and not guardian.check_budget_and_increment():
-                    raise HTTPException(status_code=429, detail="Budget Exceeded")
-
-                search_result = search_web(query=query_str)
-                source = "live-web"
-                cost_incurred += 0.01
-
-                if guardian:
-                    guardian.save_cache(query_str, search_result)
-
-            messages.append(res_msg)
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "name": tool_used,
-                    "content": str(search_result),
-                }
-            )
-
-            final_res = completion(
-                model=request.model, messages=messages, max_tokens=2048
-            )
-            final_content = final_res.choices[0].message.content
-        else:
-            final_content = res_msg.content
-
-        process_time = (datetime.now() - start_time).total_seconds()
-
-        return JSONResponse(
-            content={
-                "result": final_content,
-                "meta": {
-                    "tool": tool_used,
-                    "source": source,
-                    "latency": f"{process_time:.3f}s",
+@app.get("/v1/tools/list", dependencies=[Depends(verify_gateway)])
+async def list_tools():
+    """
+    [CRITICAL TASK 1] Dynamic Tool Discovery.
+    Matches the mcp.json definition exposed by Layer A (Edge Gateway).
+    """
+    return {
+        "tools": [
+            {
+                "name": "normalize_web_data",
+                "description": "Extracts and normalizes unstructured web data into structured Markdown/JSON.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "The target public URL to normalize.",
+                        },
+                        "format_type": {
+                            "type": "string",
+                            "enum": ["markdown", "json"],
+                            "default": "markdown",
+                        },
+                    },
+                    "required": ["url"],
                 },
-            },
-            headers={
-                "x-token-cost": str(cost_incurred),
-                "x-computation-time": str(process_time),
-            },
+            }
+        ]
+    }
+
+
+@app.post("/v1/normalize_web_data", response_model=NormalizeResponse)
+async def normalize_web_data_endpoint(
+    request: NormalizeRequest,
+    tenant_id: str = Depends(verify_gateway),  # Zero-Trust Security Gateway
+):
+    """
+    [CRITICAL TASK 2 & 3] The Main Normalization Pipeline.
+    Implements a fallback strategy: Jina Reader -> Firecrawl -> Tavily.
+    """
+    logger.info(
+        f"Processing normalization request for tenant: {tenant_id}, URL: {request.url}"
+    )
+
+    # 1. Compliance Check (Fail fast if prohibited terms are found)
+    data_guardian.enforce_compliance(request.url)
+
+    combined_raw_text = ""
+
+    # 2. Strategy A: Try Jina Reader first (Fastest, best for single pages)
+    logger.info("Attempting extraction via Jina Reader...")
+    jina_text = await extract_via_jina(request.url)
+    if jina_text:
+        combined_raw_text = f"Source: {request.url}\nContent: {jina_text}"
+
+    # 3. Strategy B: Fallback to Firecrawl (Robust scraping)
+    if not combined_raw_text.strip():
+        logger.info("Jina failed or skipped. Attempting Firecrawl...")
+        firecrawl_text = await extract_via_firecrawl(request.url)
+        if firecrawl_text:
+            combined_raw_text = f"Source: {request.url}\nContent: {firecrawl_text}"
+
+    # 4. Strategy C: Fallback to Tavily (Web Search Engine)
+    if not combined_raw_text.strip():
+        logger.info(
+            "Extraction APIs failed or skipped. Falling back to Tavily Web Search..."
+        )
+        search_json_str = search_web(request.url)
+        try:
+            search_result = json.loads(search_json_str)
+            if search_result.get("status") == "error":
+                raise HTTPException(
+                    status_code=500, detail=search_result.get("message")
+                )
+
+            results = search_result.get("results", [])
+            combined_raw_text = "\n\n".join(
+                [
+                    f"Source: {r.get('url')}\nContent: {r.get('raw_content', '')}"
+                    for r in results
+                ]
+            )
+        except Exception as e:
+            logger.error(f"Search failure: {e}")
+            raise HTTPException(status_code=500, detail="Internal Search Engine Error")
+
+    if not combined_raw_text.strip():
+        raise HTTPException(
+            status_code=404, detail="No extractable content found for the provided URL."
         )
 
-    except Exception as e:
-        logger.error(json.dumps({"event": "error", "detail": str(e)}))
-        raise HTTPException(status_code=500, detail="Core Processing Error")
+    # 5. Gemini Normalization Engine
+    # Note: Can be upgraded to use_pro_model=True based on tenant_id tier in the future
+    success, extracted_data, meta = normalizer.normalize(
+        raw_text=combined_raw_text, format_type=request.format_type, use_pro_model=False
+    )
 
+    if not success:
+        raise HTTPException(
+            status_code=500, detail=meta.get("error", "AI Normalization failed")
+        )
 
-@app.get("/llms.txt", include_in_schema=False)
-def serve_llms_txt():
-    content = STATIC_FILES.get("llms.txt")
-    if content:
-        return Response(content=content, media_type="text/plain")
-    return Response(content="Agent-Commerce-OS Core Active", media_type="text/plain")
-
-
-@app.get("/.well-known/mcp.json", include_in_schema=False)
-def serve_mcp_json():
-    content = STATIC_FILES.get("mcp.json")
-    if content:
-        return Response(content=content, media_type="application/json")
-    return JSONResponse(status_code=404, content={"error": "Not configured"})
-
-
-@app.post("/webhook/usage")
-async def handle_metering_webhook(request: Request):
-    return {"status": "received"}
+    # 6. Return formatted response (Strictly adheres to NormalizeResponse schema)
+    return NormalizeResponse(success=True, data=extracted_data, metadata=meta)
 
 
 if __name__ == "__main__":
