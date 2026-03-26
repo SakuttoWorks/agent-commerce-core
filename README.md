@@ -48,7 +48,7 @@ curl -X POST "[https://agent-commerce-core-xd36uwybpa-an.a.run.app/v1/normalize_
      -d '{
            "url": "[https://docs.python.org/3/library/json.html](https://docs.python.org/3/library/json.html)",
            "format_type": "markdown"
-         }'
+         }
 ```
 
 ### 2. Example Success Response (NormalizeResponse)
