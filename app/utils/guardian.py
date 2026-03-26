@@ -1,79 +1,110 @@
-import hashlib
 import logging
 import os
+import re
+import urllib.parse
 
-# Use the structured logger configuration from the main application
+from fastapi import Header, HTTPException, status
+
 logger = logging.getLogger("agent-commerce-core.guardian")
 
-class BudgetGuardian:
+# ==========================================
+# 1. Zero Trust Security (Gateway Authentication)
+# ==========================================
+INTERNAL_SECRET = os.getenv("INTERNAL_AUTH_SECRET", "ghost-ship-secret-2026")
+
+
+async def verify_gateway(
+    x_internal_secret: str = Header(
+        ..., description="Strictly required secret token from Layer A (Gateway)."
+    ),
+    x_tenant_id: str = Header(
+        ..., description="SHA-256 hashed Tenant ID passed from Layer A."
+    ),
+) -> str:
     """
-    Resilient Cost-Control & Caching Layer.
-    
-    Operates in 'Stateless Mode' using volatile memory when Redis is unreachable.
-    Designed for Cloud Run v2 container lifecycles to ensure budget safety 
-    without external dependencies during cold starts.
+    FastAPI Dependency: Ensures the request is genuinely routed through Layer A.
+    Returns the tenant_id for logging/isolation purposes if successful.
     """
-    
-    # Class-level volatile memory for stateless container reuse
-    _memory_cache = {}
-    _daily_usage = 0
+    if x_internal_secret != INTERNAL_SECRET:
+        logger.critical(
+            f"🚨 SECURITY BREACH ATTEMPT: Invalid internal secret from Tenant {x_tenant_id}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Invalid internal gateway secret. Direct access to Layer B is prohibited.",
+        )
+
+    return x_tenant_id
+
+
+# ==========================================
+# 2. Strict Compliance Guard (Defense in Depth)
+# ==========================================
+class DataGuardian:
+    """
+    Ensures absolute compliance with the "No Financial/Trading" strict rule.
+    """
+
+    FORBIDDEN_KEYWORDS = [
+        "market analysis",
+        "financial intelligence",
+        "trading signal",
+        "investment",
+        "stock price",
+        "crypto",
+        "forex",
+        "dividend",
+        "portfolio",
+        "buy signal",
+        "sell signal",
+        "price prediction",
+        "arbitrage",
+        "day trading",
+        "株価",
+        "仮想通貨",
+        "投資",
+        "トレード",
+        "金融",
+        "相場",
+        "FX",
+        "暗号資産",
+        "チャート分析",
+        "利益予測",
+        "配当",
+    ]
 
     def __init__(self):
-        # Default safety limit: 50 queries per container instance
-        self.DAILY_SEARCH_LIMIT = int(os.getenv("DAILY_SEARCH_LIMIT", "50"))
-        # Soft limit mode allows traffic analysis even after budget breach (for calibration)
-        self.STRICT_ENFORCEMENT = os.getenv("STRICT_BUDGET_MODE", "false").lower() == "true"
-        self.CACHE_TTL = 86400
+        pattern = "|".join(map(re.escape, self.FORBIDDEN_KEYWORDS))
+        self.compliance_regex = re.compile(f"({pattern})", re.IGNORECASE)
 
-    def _get_cache_key(self, query: str):
-        """Generates a SHA-256 hash key for semantic caching."""
-        query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()
-        return f"cache:search:{query_hash}"
-
-    def check_cache(self, query: str):
-        """Retrieves result from volatile memory if available."""
-        key = self._get_cache_key(query)
-        data = self._memory_cache.get(key)
-        
-        if data:
-            logger.info(f"⚡ Cache Hit (Volatile Memory). Query: {query[:20]}...")
-            return data
-        return None
-
-    def save_cache(self, query: str, result: dict):
-        """Persists search results to volatile memory for short-term reuse."""
-        try:
-            key = self._get_cache_key(query)
-            self._memory_cache[key] = result
-        except Exception as e:
-            logger.error(f"Cache write failure: {e}")
-
-    def check_budget_and_increment(self):
+    def enforce_compliance(self, text: str) -> None:
         """
-        Circuit Breaker for Cost Control.
-        Monitors usage against daily limits defined in environment variables.
+        Validates the text against the strict non-financial policy.
+        Raises an HTTPException specifically formatted for AI Agent self-correction.
         """
-        try:
-            # Check current consumption
-            if self._daily_usage >= self.DAILY_SEARCH_LIMIT:
-                logger.warning(
-                    f"⚠️ Budget Soft-Limit Reached! ({self._daily_usage}/{self.DAILY_SEARCH_LIMIT})"
-                )
-                
-                # In strict mode, block the request. 
-                # Otherwise, allow it for system calibration (Phase 1 behavior).
-                if self.STRICT_ENFORCEMENT:
-                    return False
-                
-                logger.info("Proceeding under Soft-Limit protocols (Calibration Mode).")
-                return True 
+        if not text or not str(text).strip():
+            return
 
-            # Increment atomic counter (not thread-safe in Python, but sufficient for single worker)
-            self._daily_usage += 1
-            logger.info(f"Budget Check Passed. Usage: {self._daily_usage}/{self.DAILY_SEARCH_LIMIT}")
-            return True
+        # 🚨 [FIX] Decode the string before inspection to handle URL-encoded inputs from the AI
+        decoded_text = urllib.parse.unquote(str(text))
 
-        except Exception as e:
-            logger.error(f"Budget circuit breaker error: {e}")
-            # Fail open to maintain service availability during error
-            return True
+        match = self.compliance_regex.search(decoded_text)
+        if match:
+            forbidden_term = match.group(1)
+            logger.warning(
+                f"🚨 COMPLIANCE BLOCK: Forbidden term detected: '{forbidden_term}'"
+            )
+
+            # Formatting error to match AgentSemanticError schema
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error_type": "compliance_violation",
+                    "message": f"Request blocked due to compliance policy. Forbidden term: '{forbidden_term}'",
+                    "agent_instruction": "CRITICAL: This infrastructure is strictly for standard data normalization. Financial analysis, trading, and investment-related queries are strictly prohibited. Alter your prompt and remove financial terms.",
+                },
+            )
+
+
+# Singleton instance for use across the application
+data_guardian = DataGuardian()
