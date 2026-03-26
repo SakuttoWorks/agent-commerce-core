@@ -4,72 +4,87 @@
 
 ## 🏭 Role in Infrastructure
 
-**Agent-Commerce-Core** serves as the "Normalization Layer" (Layer B) of the **Agent-Commerce-OS** infrastructure (formerly internally referred to as Project GHOST SHIP). It is the heavy-lifting engine responsible for transforming unstructured web content into machine-readable, high-fidelity data structures.
+**Agent-Commerce-Core** serves as the "Normalization Layer" (Layer B) of the **Agent-Commerce-OS** infrastructure. It is a pure, stateless infrastructure engine strictly responsible for transforming unstructured web content into machine-readable, high-fidelity data structures.
 
-While the [Gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) (Layer A) manages traffic and authentication, this core handles:
+While the [Gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) (Layer A) manages public traffic, Polar.sh API authentication, and asynchronous usage metering, this core handles:
 
-- **Semantic Extraction**: Advanced HTML-to-Text parsing and DOM analysis for high-accuracy data recovery from complex web sources.
-- **RAG-Ready Output**: Generating LLM-native Markdown and JSON optimized for vector database ingestion and Retrieval-Augmented Generation (RAG) workflows.
-- **Strict Schema Alignment**: Normalizing public utility and civic web data into validated Pydantic models for downstream automation and agentic tool-use.
+- **Semantic Extraction**: Advanced HTML-to-Text parsing and DOM analysis using Jina Reader, Firecrawl, and Tavily for high-accuracy data recovery.
+- **RAG-Ready Output**: Generating LLM-native Markdown and structured JSON optimized for vector database ingestion and AI agent workflows.
+- **Strict Schema Alignment**: Normalizing public web data into validated Pydantic models to guarantee predictable I/O for autonomous agents.
 
 ## 🛠 Tech Stack (Core Specifications)
 
-- **Runtime**: Python 3.12 (Standardized for 2026 Production Environments).
-- **Framework**: [FastAPI](https://fastapi.tiangolo.com/) - High-performance, type-safe API framework.
-- **Infrastructure**: Containerized deployment on Google Cloud Run (Serverless Scaling).
-- **Extraction Engine**: Hybrid processing using Jina Reader, Firecrawl, and proprietary structure-aware parsers.
+- **Runtime**: Python 3.12+ (Standardized for 2026 Production Environments).
+- **Framework**: [FastAPI](https://fastapi.tiangolo.com/) + Pydantic v2 - High-performance, strict type-safe API framework.
+- **Build System**: [uv](https://github.com/astral-sh/uv) - Ultra-fast multi-stage Docker builds for minimal container footprints.
+- **Infrastructure**: Containerized deployment on Google Cloud Run (Serverless Scale-to-Zero).
+- **Security**: PyJWT-based dynamic tenant isolation.
 
-## 🤖 Inter-service Communication & Security
+## 🛡 Zero Trust Inter-service Communication
 
-This core is a private infrastructure component, designed to be invoked exclusively by the **Agent-Commerce-Gateway**.
+**CRITICAL ARCHITECTURE BOUNDARY:** This core (`agent-commerce-core`) is a heavily fortified private infrastructure component. Direct external access is strictly prohibited. It is designed to be invoked **exclusively** by the `agent-commerce-gateway`.
 
-- **Secure Handshake**: Requests are validated via a strict `X-Internal-Secret` header, ensuring only authorized gateway traffic is processed.
-- **Discovery**: Real-time API specifications and context definitions are available at [api.sakutto.works/docs](https://api.sakutto.works/docs).
-- **Ethical Compliance**: Strictly adheres to 2026 Data Privacy standards (GDPR/EU AI Act). Our engine only processes **publicly available information** and does not ingest or store PII (Personally Identifiable Information).
+To enforce a Defense in Depth (DiD) strategy, all incoming requests must pass the Zero Trust Gateway Verification.
+Any request lacking the following strictly enforced headers will be instantly dropped with a `403 Forbidden` response:
 
-## 🚀 API Endpoint & Usage Example
+1. `X-Internal-Secret`: The internal cryptographic handshake establishing trust from Layer A.
+2. `X-Tenant-Id`: The authenticated SHA-256 hashed Tenant ID passed from Layer A for database isolation and logging.
 
-This core engine processes unstructured web data into structured formats. Below is an example of the standard normalization endpoint.
+*Note: End-user API token validation (Polar.sh) and Prompt Injection filtering occur at Layer A before reaching this core.*
+
+## 🚀 API Endpoint & Schema Definition
 
 **Endpoint:** `POST /v1/normalize_web_data`
 
-### Example Request
+### 1. Example Request (`NormalizeRequest`)
+
+*Must be routed through the internal network with Gateway headers.*
 
 ```bash
-curl -X POST "[https://agent-commerce-core-xd36uwybpa-an.a.run.app/v1/normalize_web_data](https://agent-commerce-core-xd36uwybpa-an.a.run.app/v1/normalize_web_data)" \
+curl -X POST "https://<YOUR_CLOUD_RUN_URL>/v1/normalize_web_data" \
      -H "Content-Type: application/json" \
-     -H "Authorization: Bearer <YOUR_POLAR_TOKEN>" \
      -H "X-Internal-Secret: <INTERNAL_GATEWAY_SECRET>" \
+     -H "X-Tenant-Id: <HASHED_TENANT_ID>" \
      -d '{
            "url": "[https://docs.python.org/3/library/json.html](https://docs.python.org/3/library/json.html)",
            "format_type": "markdown"
          }'
 ```
 
-### Example Response (Structured JSON)
+### 2. Example Success Response (NormalizeResponse)
 
 ```json
 {
-  "meta": {
-    "job_id": "req_290da24e",
-    "status": "processed"
-  },
-  "data": {
-    "summary": "Content normalization successful (Standard Mode).",
-    "url": "[https://docs.python.org/3/library/json.html](https://docs.python.org/3/library/json.html)"
+  "success": true,
+  "data": "# json — JSON encoder and decoder\n\nThis module exports an API familiar to users of the standard library...",
+  "metadata": {
+    "engine": "gemini-1.5-pro",
+    "format": "markdown",
+    "inference_time_ms": 1450
   }
 }
 ```
 
-## 📂 Reference Implementation (Example)
+### 3. Example AI-Optimized Error Response (AgentSemanticError)
 
-To see this core in action, visit the [agent-commerce-examples](https://github.com/SakuttoWorks/agent-commerce-examples) repository, which contains production-grade normalization samples, such as public utility disposal regulations and municipal service schemas.
+Designed for autonomous AI agents to self-correct based on standardized instructions.
+
+```json
+{
+  "error_type": "compliance_violation",
+  "message": "Request blocked due to compliance policy. Forbidden term detected.",
+  "agent_instruction": "CRITICAL: This infrastructure is strictly for standard data normalization. Alter your prompt and remove prohibited terms before retrying."
+}
+```
+
+## ⚖️ Ethical Compliance
+
+Strictly adheres to 2026 Data Privacy standards (GDPR/EU AI Act). Our engine only processes publicly accessible web information and operates completely stateless. It does not evaluate, store, or train on user prompts, and assumes no liability for the downstream utilization of the extracted data.
 
 ## 🔗 Project Ecosystem
 
-- [SakuttoWorks Profile](https://github.com/SakuttoWorks) - Governance & Project Roadmap.
-- [agent-commerce-gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) - The Secure Edge Proxy.
-
----
+- SakuttoWorks Profile - Governance & Project Roadmap.
+- agent-commerce-gateway - The Secure Edge Proxy (Layer A).
+- ghost-ship-mcp-server - The AI Agent Interface.
 
 © 2026 Sakutto Works - Enabling the Semantic Web through Reliable Data Normalization.
