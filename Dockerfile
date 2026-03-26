@@ -41,6 +41,7 @@ WORKDIR /app
 # 2. Environment Configuration
 # PYTHONUNBUFFERED ensures logs are streamed directly to Cloud Logging
 ENV PYTHONUNBUFFERED=1
+# Default port fallback (Cloud Run dynamically sets this via $PORT)
 ENV PORT=8080
 
 # Copy the completely built virtual environment (.venv) from the builder stage
@@ -54,6 +55,5 @@ COPY . .
 RUN useradd -m ghostuser && chown -R ghostuser /app
 USER ghostuser
 
-# 5. Entrypoint: Start Uvicorn server
-# (The number of workers can be adjusted according to the Cloud Run instance size)
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
+# 5. Entrypoint: Execute main.py to trigger the dynamic Cloud Run port binding
+CMD ["python", "main.py"]
