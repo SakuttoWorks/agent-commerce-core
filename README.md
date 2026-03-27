@@ -93,8 +93,10 @@ Strictly adheres to 2026 Data Privacy standards (GDPR/EU AI Act). Our engine onl
 
 ## 🔗 Project Ecosystem
 
-- [SakuttoWorks Profile](https://github.com/SakuttoWorks) - Governance & Project Roadmap.
+- [Official Portal (sakutto.works)](https://sakutto.works) - Central Hub & API Documentation.
 - [agent-commerce-gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) - The Secure Edge Proxy (Layer A).
+- [ghost-ship-mcp-server](https://github.com/SakuttoWorks/ghost-ship-mcp-server) - The Official MCP Integration Server (Layer C).
+- [SakuttoWorks Profile](https://github.com/SakuttoWorks) - Governance & Project Roadmap.
 
 ---
 
