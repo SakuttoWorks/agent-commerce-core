@@ -104,8 +104,8 @@ Strictly adheres to 2026 Data Privacy standards (GDPR/EU AI Act). Our engine onl
 
 If this infrastructure helped you save time or scale your AI agents, consider supporting the development! Your support helps keep this project highly maintained and secure.
 
-[![Support via Polar.sh](https://img.shields.io/badge/Support_via-Polar.sh-blue?style=for-the-badge)](https://buy.polar.sh/polar_cl_ZI9H5fL8dQqcormOadiGDFDpS2Sxd1jT05jTX1vStWi)
+[![Support via Polar.sh](https://img.shields.io/badge/Support_via-Polar.sh-blue?style=for-the-badge)](https://polar.sh/checkout/polar_c_PKGocBSXuNalMQ1fxvjdBnStNno417XtFeaZ33Etu1r)
 [![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub-ea4aaa?style=for-the-badge&logo=github)](https://github.com/sponsors/SakuttoWorks)
 
 
-© 2026 Sakutto Works - Enabling the Semantic Web through Reliable Data Normalization.
+© 2026 Sakutto Works - *Standardizing the Semantic Web for Agents.*
