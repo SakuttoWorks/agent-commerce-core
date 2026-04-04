@@ -57,6 +57,7 @@ Any request lacking the following strictly enforced headers will be instantly dr
 Don't want to host the infrastructure yourself? You can instantly access the fully managed **Agent-Commerce-OS** via our globally distributed Edge Gateway. 
 
 Get your official API key here and start building immediately:
+
 [![Get API Key](https://img.shields.io/badge/Get_API_Key-Polar.sh-blue?style=for-the-badge)](https://buy.polar.sh/polar_cl_mps3G1hmCTmQWDYYEMY2G1c7sojN3Tul6IhjO4EtVuj)
 
 ---
