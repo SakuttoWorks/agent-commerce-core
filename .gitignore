@@ -1,0 +1,78 @@
+# === Python Core (Build & Cache) ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# === Environments (Critical Security: Zero Trust) ===
+# Blocks private keys, API secrets, and Polar.sh tokens
+.env
+.env.local
+.env.*
+.envrc
+.venv
+env/
+venv/
+ENV/
+
+# === Cloud & Secrets (Safety Net) ===
+# Explicitly block Google Cloud Service Account Keys
+*service-account*.json
+*gcp-key*.json
+*.pem
+*.key
+*.p12
+
+# === Editor / IDE (VS Code Shared Config) ===
+# 2026 Standard: Share settings/tasks, ignore local history
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.history/
+.idea/
+
+# === Testing / Linting (Dev Health) ===
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.cache
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+
+# === Runtime / Logs (Privacy & Compliance) ===
+# Prevent uploading local logs or scraped data
+*.log
+logs/
+data/
+temp/
+output/
+*.sqlite
+*.db
+
+# === Operating System ===
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon\r\n
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# === Legacy / Project Specific (Layer B Cleanup) ===
+supabase/
+mcp.json
+llms.txt

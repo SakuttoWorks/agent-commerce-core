@@ -1,0 +1,30 @@
+# --- 1. Python & Virtual Environment (Crucial: Deployment Speed) ---
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- 2. Development Tools & Security ---
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+.env
+
+# --- 3. Project Specific Unnecessary Files (Not needed in container) ---
+supabase/
+README.md
+mcp.json
+llms.txt

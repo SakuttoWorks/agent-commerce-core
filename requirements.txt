@@ -1,0 +1,27 @@
+# --- Core Engine Dependencies (Layer B: Agent-Commerce-OS) ---
+
+# --- Web Framework & Server ---
+# "standard" includes uvicorn and optional dependencies for production
+fastapi[standard]>=0.115.0
+
+# --- Data Validation & Schema ---
+# Version 2.10+ required for ConfigDict and strict type enforcement
+pydantic>=2.10.0
+pydantic-settings>=2.4.0
+
+# --- AI & Search Integration ---
+# Google's official SDK for Gemini 3 series / 1.5 Pro
+google-genai>=1.0.0
+# Search API for external data retrieval (non-financial context)
+tavily-python>=0.7.0
+
+# --- Advanced Extraction Modules ---
+# High-performance async HTTP client for Jina Reader & Firecrawl APIs
+httpx>=0.27.0
+
+# --- Utilities ---
+python-dotenv>=1.0.0
+
+# --- Testing (Local & E2E) ---
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
