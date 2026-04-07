@@ -1,6 +1,6 @@
-from typing import Any, Dict, Optional
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 
 # ==========================================
@@ -13,7 +13,7 @@ class AgentSemanticError(BaseModel):
 
     error_type: str = Field(
         ...,
-        description="Machine-readable error category (e.g., 'compliance_violation', 'quota_exceeded', 'schema_mismatch').",
+        description="Machine-readable error category (e.g., 'compliance_violation', 'rate_limit_exceeded', 'unreachable_url', 'schema_mismatch').",
     )
     message: str = Field(..., description="Detailed description of what went wrong.")
     agent_instruction: str = Field(
@@ -29,12 +29,17 @@ class NormalizeRequest(BaseModel):
     """
     Payload for the primary normalization and extraction engine.
     Must perfectly match the inputSchema defined in Layer C's MCP endpoint and forwarded by Layer A's Gateway.
+
+    Note: 'fields' (Lite GraphQL feature) is handled dynamically as a query parameter
+    in the FastAPI endpoint routing, and thus is intentionally excluded from this body schema.
     """
 
-    url: str = Field(
+    url: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
         ..., description="The target public URL to fetch and normalize data from."
     )
-    format_type: str = Field(
+    format_type: Annotated[
+        str, StringConstraints(strip_whitespace=True, to_lower=True)
+    ] = Field(
         default="markdown",
         description="Desired output format. Supported values: 'json', 'markdown'.",
     )
@@ -51,11 +56,11 @@ class NormalizeResponse(BaseModel):
     success: bool = Field(
         default=True, description="Indicates if the normalization was successful."
     )
-    data: str = Field(
+    data: Any = Field(
         ...,
-        description="The extracted and normalized content in the requested format (Markdown string or JSON string).",
+        description="The extracted and normalized content. Can be a Markdown string, a complete JSON object (dict), or a dynamically filtered subset of fields (Lite GraphQL).",
     )
-    metadata: Optional[Dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default_factory=dict,
         description="Optional metadata about the extraction (e.g., token usage, processing time, source title).",
     )

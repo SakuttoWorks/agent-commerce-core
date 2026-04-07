@@ -25,6 +25,8 @@ While the [Gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) (Lay
 - **Semantic Extraction**: Advanced HTML-to-Text parsing and DOM analysis using Jina Reader, Firecrawl, and Tavily for high-accuracy data recovery.
 - **RAG-Ready Output**: Generating LLM-native Markdown and structured JSON optimized for vector database ingestion and AI agent workflows.
 - **Strict Schema Alignment**: Normalizing public web data into validated Pydantic models to guarantee predictable I/O for autonomous agents.
+- **Lite GraphQL-style Filtering**: Dynamically extracts only the requested fields via the optional `fields` parameter, significantly reducing payload size and LLM token consumption.
+- **Advanced Resilience & Fallbacks**: Features strict pre-flight HTTP validations to prevent hallucinations, automatic `429 Rate Limit` handling with `Retry-After` headers for agent self-healing, and safe fallback mechanisms for parsing anomalies.
 
 ---
 
@@ -34,6 +36,7 @@ While the [Gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) (Lay
 - **Framework**: [FastAPI](https://fastapi.tiangolo.com/) + Pydantic v2 - High-performance, strict type-safe API framework.
 - **Build System**: [uv](https://github.com/astral-sh/uv) - Ultra-fast multi-stage Docker builds for minimal container footprints.
 - **Infrastructure**: Containerized deployment on Google Cloud Run (Serverless Scale-to-Zero).
+- **Testing & Quality Assurance**: `pytest`, `pytest-cov`, and `httpx` with AsyncMock for comprehensive, network-isolated asynchronous unit testing.
 - **Security**: PyJWT-based dynamic tenant isolation.
 
 ---
@@ -77,7 +80,8 @@ curl -X POST "https://agent-commerce-core-xd36uwybpa-an.a.run.app/v1/normalize_w
      -H "X-Tenant-Id: <HASHED_TENANT_ID>" \
      -d '{
            "url": "https://sakutto.works",
-           "format_type": "markdown"
+           "format_type": "json",
+           "fields": "title,core_summary"
          }'
 ```
 
@@ -86,10 +90,13 @@ curl -X POST "https://agent-commerce-core-xd36uwybpa-an.a.run.app/v1/normalize_w
 ```json
 {
   "success": true,
-  "data": "# json — JSON encoder and decoder\n\nThis module exports an API familiar to users of the standard library...",
+  "data": {
+    "title": "json — JSON encoder and decoder",
+    "core_summary": "This module exports an API familiar to users of the standard library for JSON serialization and deserialization."
+  },
   "metadata": {
     "engine": "gemini-3.1-pro",
-    "format": "markdown",
+    "format": "json",
     "inference_time_ms": 1450
   }
 }
@@ -147,6 +154,11 @@ To ensure rapid dependency resolution and reproducible builds, we use `uv` as ou
    uvicorn main:app --reload --port 8080
    ```
 
+5. **Run Tests & Coverage:**
+Ensure all unit tests pass and check coverage before submitting a PR.
+   ```bash
+   pytest --cov=. tests/
+   ```
 ---
 
 ## 🤝 Contributing

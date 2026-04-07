@@ -51,9 +51,12 @@ class GeminiNormalizer:
         self.flash_model = os.getenv("GEMINI_FLASH_MODEL", "gemini-3-flash")
         self.pro_model = os.getenv("GEMINI_PRO_MODEL", "gemini-3.1-pro")
 
-    def _get_system_instruction(self, format_type: str) -> str:
+    def _get_system_instruction(
+        self, format_type: str, requested_fields: str | None = None
+    ) -> str:
         """
         Defines the strict persona and compliance rules for the AI Engine.
+        Dynamically adjusts instructions based on Lite GraphQL field requests.
         """
         base_instruction = (
             "You are a highly efficient B2B Data Normalization Infrastructure for AI agents. "
@@ -64,10 +67,18 @@ class GeminiNormalizer:
         )
 
         if format_type == "json":
-            return (
+            instruction = (
                 base_instruction
-                + "Output the extracted data strictly conforming to the provided JSON schema."
+                + "Output the extracted data strictly conforming to the provided JSON schema. "
             )
+            if requested_fields:
+                instruction += (
+                    f"CRITICAL REQUIREMENT: The agent explicitly requested the following fields: [{requested_fields}]. "
+                    "You MUST prioritize searching for and accurately extracting these specific data points. "
+                    "Include them precisely within the output schema. "
+                    "If a requested field does not exist in the source text, omit it rather than hallucinating fake data."
+                )
+            return instruction
         else:
             return (
                 base_instruction
@@ -75,21 +86,25 @@ class GeminiNormalizer:
             )
 
     def normalize(
-        self, raw_text: str, format_type: str = "markdown", use_pro_model: bool = False
+        self,
+        raw_text: str,
+        format_type: str = "markdown",
+        use_pro_model: bool = False,
+        requested_fields: str | None = None,
     ) -> tuple[bool, str, Dict[str, Any]]:
         """
         Executes the normalization process using Gemini.
         Returns:
             success (bool): Whether the extraction succeeded.
             data (str): The raw extracted string (Markdown or JSON string).
-            metadata (dict): Processing metadata.
+            metadata (dict): Processing metadata including potential error states.
         """
         if not self.client:
             return False, "", {"error": "Gemini Engine is not configured."}
 
         start_time = time.time()
         model_name = self.pro_model if use_pro_model else self.flash_model
-        system_instruction = self._get_system_instruction(format_type)
+        system_instruction = self._get_system_instruction(format_type, requested_fields)
 
         # Configure model parameters
         config_args = {
@@ -117,10 +132,23 @@ class GeminiNormalizer:
             error_message = None
 
         except Exception as e:
-            logger.error(f"Gemini Normalization failed: {e}")
+            error_msg = str(e)
+            logger.error(f"Gemini Normalization failed: {error_msg}")
+
+            # Rate Limit (429) Handling for robust Agent self-correction
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+                return (
+                    False,
+                    "",
+                    {
+                        "error": "Rate limit exceeded on the upstream AI provider.",
+                        "status_code": 429,
+                    },
+                )
+
             output_content = ""
             success = False
-            error_message = str(e)
+            error_message = error_msg
 
         inference_time_ms = round((time.time() - start_time) * 1000)
 

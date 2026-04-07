@@ -12,7 +12,7 @@ from app.tools.gemini_normalizer import normalizer
 from app.tools.web_search import search_web
 from app.utils.guardian import data_guardian, verify_gateway
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -59,28 +59,45 @@ app.add_middleware(
 # --- 3. Semantic Error Handlers (AEO) ---
 @app.exception_handler(HTTPException)
 async def semantic_http_exception_handler(request: Request, exc: HTTPException):
-    """Translates standard HTTP errors into AI-friendly Semantic Errors."""
+    """Translates standard HTTP errors into AI-friendly Semantic Errors with resilient headers."""
     error_type = "api_error"
     instruction = "Please review your request parameters and try again."
 
     if exc.status_code == 400:
         error_type = "bad_request"
-        instruction = "Your input was invalid. Ensure payload is correct."
+        instruction = "Your input was invalid. Ensure the payload format is correct."
     elif exc.status_code == 403:
         error_type = "compliance_violation"
         instruction = (
             "CRITICAL: Prohibited request. Halt this inquiry and change your approach."
         )
+    elif exc.status_code == 404:
+        error_type = "not_found"
+        instruction = (
+            "The requested resource was not found. Please verify the target URL."
+        )
+    elif exc.status_code == 429:
+        error_type = "rate_limit_exceeded"
+        instruction = "Wait for at least 60 seconds (Retry-After) before attempting another request."
 
     # Check if the detail is already structured as our AgentSemanticError payload
     if isinstance(exc.detail, dict) and "error_type" in exc.detail:
-        return JSONResponse(status_code=exc.status_code, content=exc.detail)
+        semantic_error = AgentSemanticError(**exc.detail)
+    else:
+        semantic_error = AgentSemanticError(
+            error_type=error_type,
+            message=str(exc.detail),
+            agent_instruction=instruction,
+        )
 
-    semantic_error = AgentSemanticError(
-        error_type=error_type, message=str(exc.detail), agent_instruction=instruction
-    )
+    headers = exc.headers if exc.headers else {}
+    if exc.status_code == 429 and "Retry-After" not in headers:
+        headers["Retry-After"] = "60"
+
     return JSONResponse(
-        status_code=exc.status_code, content=semantic_error.model_dump()
+        status_code=exc.status_code,
+        content=semantic_error.model_dump(),
+        headers=headers,
     )
 
 
@@ -99,15 +116,48 @@ async def semantic_validation_exception_handler(
     )
 
 
-# --- 4. Advanced Extraction Modules ---
+# --- 4. Network Security & Reachability Module ---
+async def verify_url_is_live(url: str):
+    """Validates if the target URL is reachable (HTTP 200) before delegating to extraction APIs."""
+    # Add a standard browser User-Agent to bypass basic Bot protections (like Wikipedia's 403 Forbidden)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+    }
+    try:
+        # Disable SSL verification (verify=False) and apply headers
+        async with httpx.AsyncClient(verify=False, headers=headers) as client:
+            # HEAD request is optimal, but some servers block it, so we fallback to GET
+            response = await client.head(url, follow_redirects=True, timeout=10.0)
+            if response.status_code >= 400:
+                response = await client.get(url, follow_redirects=True, timeout=10.0)
+                if response.status_code >= 400:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error_type": "unreachable_url",
+                            "message": f"Target URL returned HTTP {response.status_code}. It is offline or blocking access.",
+                            "agent_instruction": f"CRITICAL: The requested URL ({url}) is inaccessible. Do not attempt to process it or hallucinate data.",
+                        },
+                    )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error_type": "dns_or_network_error",
+                "message": f"Network error when verifying URL: {str(e)}",
+                "agent_instruction": "CRITICAL: DNS resolution or network connection failed for this URL. The domain does not exist or is unreachable.",
+            },
+        )
+
+
+# --- 5. Advanced Extraction Modules ---
 async def extract_via_jina(url: str) -> str | None:
     """Uses Jina Reader API for ultra-fast, LLM-optimized Markdown extraction."""
     jina_key = os.getenv("JINA_API_KEY")
     if not jina_key:
         return None
 
-    headers = {"Authorization": f"Bearer {jina_key}"}
-    headers["X-Return-Format"] = "markdown"
+    headers = {"Authorization": f"Bearer {jina_key}", "X-Return-Format": "markdown"}
 
     try:
         async with httpx.AsyncClient() as client:
@@ -155,7 +205,7 @@ async def extract_via_firecrawl(url: str) -> str | None:
     return None
 
 
-# --- 5. API Endpoints ---
+# --- 6. API Endpoints ---
 @app.get("/")
 async def health_check():
     return {
@@ -169,35 +219,41 @@ async def health_check():
 async def normalize_web_data_endpoint(
     request: NormalizeRequest,
     tenant_id: str = Depends(verify_gateway),  # Zero-Trust Security Gateway
+    fields: str | None = Query(
+        default=None, description="Comma-separated fields to extract (Lite GraphQL)"
+    ),
 ):
     """
     [CRITICAL TASK 2 & 3] The Main Normalization Pipeline.
-    Implements a fallback strategy: Jina Reader -> Firecrawl -> Tavily.
+    Implements a fallback strategy: URL Verification -> Jina Reader -> Firecrawl -> Tavily.
     """
     logger.info(
-        f"Processing normalization request for tenant: {tenant_id}, URL: {request.url}"
+        f"Processing normalization request for tenant: {tenant_id}, URL: {request.url}, fields: {fields}"
     )
 
     # 1. Compliance Check (Fail fast if prohibited terms are found)
     data_guardian.enforce_compliance(request.url)
 
+    # 2. Strict HTTP Status Check (Prevent Hallucinations & Wasted Tokens)
+    await verify_url_is_live(request.url)
+
     combined_raw_text = ""
     fetched_at = None
 
-    # 2. Strategy A: Try Jina Reader first (Fastest, best for single pages)
+    # 3. Strategy A: Try Jina Reader first (Fastest, best for single pages)
     logger.info("Attempting extraction via Jina Reader...")
     jina_text = await extract_via_jina(request.url)
     if jina_text:
         combined_raw_text = f"Source: {request.url}\nContent: {jina_text}"
 
-    # 3. Strategy B: Fallback to Firecrawl (Robust scraping)
+    # 4. Strategy B: Fallback to Firecrawl (Robust scraping)
     if not combined_raw_text.strip():
         logger.info("Jina failed or skipped. Attempting Firecrawl...")
         firecrawl_text = await extract_via_firecrawl(request.url)
         if firecrawl_text:
             combined_raw_text = f"Source: {request.url}\nContent: {firecrawl_text}"
 
-    # 4. Strategy C: Fallback to Tavily (Web Search Engine)
+    # 5. Strategy C: Fallback to Tavily (Web Search Engine)
     if not combined_raw_text.strip():
         logger.info(
             "Extraction APIs failed or skipped. Falling back to Tavily Web Search..."
@@ -230,16 +286,57 @@ async def normalize_web_data_endpoint(
             status_code=404, detail="No extractable content found for the provided URL."
         )
 
-    # 5. Gemini Normalization Engine
-    # Note: Can be upgraded to use_pro_model=True based on tenant_id tier in the future
+    # 6. Gemini Normalization Engine (Schema Filtering via Requested Fields)
     success, extracted_data, meta = normalizer.normalize(
-        raw_text=combined_raw_text, format_type=request.format_type, use_pro_model=False
+        raw_text=combined_raw_text,
+        format_type=request.format_type,
+        use_pro_model=False,
+        requested_fields=fields,
     )
 
     if not success:
-        raise HTTPException(
-            status_code=500, detail=meta.get("error", "AI Normalization failed")
-        )
+        status_code = meta.get("status_code", 500)
+        error_msg = meta.get("error", "AI Normalization failed")
+
+        if status_code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error_type": "rate_limit_exceeded",
+                    "message": "The upstream AI provider is currently out of quota.",
+                    "agent_instruction": "CRITICAL: Rate limit exceeded. Wait for the Retry-After duration (60 seconds) before sending another request.",
+                },
+                headers={"Retry-After": "60"},
+            )
+
+        raise HTTPException(status_code=status_code, detail=error_msg)
+
+    # 7. Lite GraphQL Filtering (Post-processing Schema Filtering)
+    if fields and isinstance(extracted_data, str):
+        try:
+            # Parse the stringified JSON returned by the normalizer
+            parsed_data = json.loads(extracted_data)
+            requested_keys = [key.strip() for key in fields.split(",") if key.strip()]
+
+            if requested_keys and isinstance(parsed_data, dict):
+                filtered_data = {
+                    k: v for k, v in parsed_data.items() if k in requested_keys
+                }
+
+                # Fallback: if the filtered dictionary is empty, return the original full data
+                if not filtered_data:
+                    logger.warning(
+                        f"Requested fields '{fields}' not found in the extracted data. Falling back to full payload."
+                    )
+                    extracted_data = parsed_data  # Return as dict
+                else:
+                    extracted_data = filtered_data  # Return filtered dict
+            else:
+                extracted_data = parsed_data  # Return parsed dict if keys were empty
+        except json.JSONDecodeError:
+            logger.info(
+                "Extraction result is not valid JSON; skipping field filtering."
+            )
 
     # Calculate Data Freshness if fetched via search
     if fetched_at:
@@ -252,7 +349,7 @@ async def normalize_web_data_endpoint(
         except ValueError:
             meta["X-Data-Freshness"] = fetched_at
 
-    # 6. Return formatted response (Strictly adheres to NormalizeResponse schema)
+    # 8. Return formatted response (Strictly adheres to NormalizeResponse schema)
     return NormalizeResponse(success=True, data=extracted_data, metadata=meta)
 
 
