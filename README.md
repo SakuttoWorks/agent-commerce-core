@@ -27,6 +27,7 @@ While the [Gateway](https://github.com/SakuttoWorks/agent-commerce-gateway) (Lay
 - **Strict Schema Alignment**: Normalizing public web data into validated Pydantic models to guarantee predictable I/O for autonomous agents.
 - **Lite GraphQL-style Filtering**: Dynamically extracts only the requested fields via the optional `fields` parameter, significantly reducing payload size and LLM token consumption.
 - **Advanced Resilience & Fallbacks**: Features strict pre-flight HTTP validations to prevent hallucinations, automatic `429 Rate Limit` handling with `Retry-After` headers for agent self-healing, and safe fallback mechanisms for parsing anomalies.
+- **Anti-Hallucination & Hybrid Trust Metrics**: Automatically embeds absolute ISO-8601 timestamps, verified source URLs, and a strictly calculated "Hybrid Trust Score" (combining LLM subjective evaluation with deterministic metrics like extraction route stability and data freshness) into every response to enforce ultimate transparency and eliminate human audit interventions.
 
 ---
 
@@ -92,8 +93,13 @@ curl -X POST "https://agent-commerce-core-xd36uwybpa-an.a.run.app/v1/normalize_w
   "success": true,
   "data": {
     "title": "json — JSON encoder and decoder",
-    "core_summary": "This module exports an API familiar to users of the standard library for JSON serialization and deserialization."
+    "core_summary": "This module exports an API familiar to users of the standard library for JSON serialization and deserialization.",
+    "trust_score": 0.98,
+    "structured_data": []
   },
+  "source_url": "https://sakutto.works",
+  "timestamp": "2026-04-10T07:14:08+00:00",
+  "trust_score": 0.98,
   "metadata": {
     "engine": "gemini-3.1-pro",
     "format": "json",

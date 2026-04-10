@@ -5,13 +5,16 @@ import sys
 from datetime import datetime, timezone
 
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # --- Cleaned Project Imports ---
 from app.models.schemas import AgentSemanticError, NormalizeRequest, NormalizeResponse
 from app.tools.gemini_normalizer import normalizer
 from app.tools.web_search import search_web
 from app.utils.guardian import data_guardian, verify_gateway
-from dotenv import load_dotenv
+from app.utils.trust_metrics import calculate_hybrid_trust_score
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -239,12 +242,14 @@ async def normalize_web_data_endpoint(
 
     combined_raw_text = ""
     fetched_at = None
+    extraction_route = "unknown"
 
     # 3. Strategy A: Try Jina Reader first (Fastest, best for single pages)
     logger.info("Attempting extraction via Jina Reader...")
     jina_text = await extract_via_jina(request.url)
     if jina_text:
         combined_raw_text = f"Source: {request.url}\nContent: {jina_text}"
+        extraction_route = "jina"
 
     # 4. Strategy B: Fallback to Firecrawl (Robust scraping)
     if not combined_raw_text.strip():
@@ -252,6 +257,7 @@ async def normalize_web_data_endpoint(
         firecrawl_text = await extract_via_firecrawl(request.url)
         if firecrawl_text:
             combined_raw_text = f"Source: {request.url}\nContent: {firecrawl_text}"
+            extraction_route = "firecrawl"
 
     # 5. Strategy C: Fallback to Tavily (Web Search Engine)
     if not combined_raw_text.strip():
@@ -273,8 +279,8 @@ async def normalize_web_data_endpoint(
                     for r in results
                 ]
             )
-            # Retrieve timestamp for freshness calculation
             fetched_at = search_result.get("fetched_at")
+            extraction_route = "search"
         except HTTPException:
             raise
         except Exception as e:
@@ -285,6 +291,8 @@ async def normalize_web_data_endpoint(
         raise HTTPException(
             status_code=404, detail="No extractable content found for the provided URL."
         )
+
+    data_guardian.enforce_compliance(combined_raw_text)
 
     # 6. Gemini Normalization Engine (Schema Filtering via Requested Fields)
     success, extracted_data, meta = normalizer.normalize(
@@ -338,7 +346,8 @@ async def normalize_web_data_endpoint(
                 "Extraction result is not valid JSON; skipping field filtering."
             )
 
-    # Calculate Data Freshness if fetched via search
+    # 8. Calculate Metrics: Data Freshness & Hybrid Trust Score
+    freshness_seconds = None
     if fetched_at:
         try:
             fetched_time = datetime.fromisoformat(fetched_at)
@@ -349,8 +358,27 @@ async def normalize_web_data_endpoint(
         except ValueError:
             meta["X-Data-Freshness"] = fetched_at
 
-    # 8. Return formatted response (Strictly adheres to NormalizeResponse schema)
-    return NormalizeResponse(success=True, data=extracted_data, metadata=meta)
+    meta["extraction_route"] = extraction_route
+    llm_trust_score = meta.pop("trust_score", 1.0)
+
+    # Calculate deterministic hybrid score
+    final_hybrid_score = calculate_hybrid_trust_score(
+        llm_score=llm_trust_score,
+        extraction_route=extraction_route,
+        data_freshness_seconds=freshness_seconds,
+    )
+
+    current_timestamp = datetime.now(timezone.utc).isoformat()
+
+    # Return formatted response (Strictly adheres to NormalizeResponse schema)
+    return NormalizeResponse(
+        success=True,
+        data=extracted_data,
+        source_url=request.url,
+        timestamp=current_timestamp,
+        trust_score=final_hybrid_score,
+        metadata=meta,
+    )
 
 
 if __name__ == "__main__":

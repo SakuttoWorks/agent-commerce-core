@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -31,8 +32,22 @@ class NormalizedJsonOutput(BaseModel):
     core_summary: str = Field(
         description="A concise, objective summary of the technical or factual content."
     )
+    trust_score: float = Field(
+        description="Confidence score (0.0 to 1.0) indicating the fidelity and accuracy of the extraction based on the source text."
+    )
     structured_data: List[ExtractedDataItem] = Field(
-        description="A list of extracted key-value pairs representing specifications, documentation details, or public municipal data. Must not contain any financial insights."
+        description="A list of extracted key-value pairs representing specifications, documentation details, or public municipal data. Must not contain any prohibited insights."
+    )
+
+
+class NormalizedMarkdownOutput(BaseModel):
+    """Internal schema to force Gemini to output a trust score alongside Markdown."""
+
+    trust_score: float = Field(
+        description="Confidence score (0.0 to 1.0) indicating the fidelity and accuracy of the extraction based on the source text."
+    )
+    content: str = Field(
+        description="The extracted data strictly formatted in clean, well-structured Markdown."
     )
 
 
@@ -64,6 +79,8 @@ class GeminiNormalizer:
             "CRITICAL COMPLIANCE RULE: You are strictly prohibited from analyzing, extracting, or outputting any "
             "financial data, trading signals, market analysis, or investment advice. If the input contains such data, "
             "ignore it completely and focus only on generic technical specifications or objective facts. "
+            "ANTI-HALLUCINATION PROTOCOL: You must calculate a 'trust_score' (0.0 to 1.0) reflecting your extraction accuracy. "
+            "Deduct points if the source text is ambiguous or lacks sufficient context. "
         )
 
         if format_type == "json":
@@ -82,7 +99,7 @@ class GeminiNormalizer:
         else:
             return (
                 base_instruction
-                + "Output the extracted data strictly in clean, well-structured Markdown format without any conversational filler."
+                + "Output the requested Markdown text inside the 'content' field of the JSON schema, alongside your 'trust_score'."
             )
 
     def normalize(
@@ -106,16 +123,17 @@ class GeminiNormalizer:
         model_name = self.pro_model if use_pro_model else self.flash_model
         system_instruction = self._get_system_instruction(format_type, requested_fields)
 
-        # Configure model parameters
+        # Force application/json for BOTH formats to guarantee Trust Score extraction
         config_args = {
             "system_instruction": system_instruction,
-            "temperature": 0.0,  # Zero temperature for deterministic, factual extraction
+            "temperature": 0.0,
+            "response_mime_type": "application/json",
         }
 
-        # Enforce Structured Outputs if JSON is requested
         if format_type == "json":
-            config_args["response_mime_type"] = "application/json"
             config_args["response_schema"] = NormalizedJsonOutput
+        else:
+            config_args["response_schema"] = NormalizedMarkdownOutput
 
         config = types.GenerateContentConfig(**config_args)
 
@@ -126,16 +144,26 @@ class GeminiNormalizer:
                 config=config,
             )
 
-            # Retrieve the raw text (which is a valid JSON string if format_type == "json")
-            output_content = response.text
+            raw_response_text = response.text
             success = True
             error_message = None
+            trust_score = 1.0
+
+            try:
+                parsed_json = json.loads(raw_response_text)
+                trust_score = float(parsed_json.get("trust_score", 1.0))
+
+                if format_type == "markdown":
+                    output_content = parsed_json.get("content", "")
+                else:
+                    output_content = raw_response_text
+            except json.JSONDecodeError:
+                output_content = raw_response_text
 
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Gemini Normalization failed: {error_msg}")
 
-            # Rate Limit (429) Handling for robust Agent self-correction
             if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
                 return (
                     False,
@@ -149,6 +177,7 @@ class GeminiNormalizer:
             output_content = ""
             success = False
             error_message = error_msg
+            trust_score = 0.0
 
         inference_time_ms = round((time.time() - start_time) * 1000)
 
@@ -156,6 +185,7 @@ class GeminiNormalizer:
             "engine": model_name,
             "format": format_type,
             "inference_time_ms": inference_time_ms,
+            "trust_score": trust_score,
         }
         if error_message:
             metadata["error"] = error_message

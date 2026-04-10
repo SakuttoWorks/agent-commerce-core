@@ -60,6 +60,16 @@ class NormalizeResponse(BaseModel):
         ...,
         description="The extracted and normalized content. Can be a Markdown string, a complete JSON object (dict), or a dynamically filtered subset of fields (Lite GraphQL).",
     )
+    source_url: str | None = Field(
+        default=None, description="The verified source URL of the extracted data."
+    )
+    timestamp: str | None = Field(
+        default=None, description="Absolute ISO-8601 timestamp of the extraction."
+    )
+    trust_score: float | None = Field(
+        default=None,
+        description="Automated LLM-generated confidence/trust score (0.0 to 1.0) based on extraction fidelity and hallucination absence.",
+    )
     metadata: dict[str, Any] | None = Field(
         default_factory=dict,
         description="Optional metadata about the extraction (e.g., token usage, processing time, source title).",
