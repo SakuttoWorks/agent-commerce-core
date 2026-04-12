@@ -86,6 +86,38 @@ curl -X POST "https://agent-commerce-core-xd36uwybpa-an.a.run.app/v1/normalize_w
          }'
 ```
 
+### 1.5. Asynchronous Webhook Request (Tier A-1 Deep Research)
+
+For long-running extractions (e.g., Deep Research consensus synthesis), provide a `webhook` object. The API will immediately return an HTTP 202 with a Job ID, preventing AI agent timeouts.
+
+**Request:**
+
+```bash
+curl -X POST "https://agent-commerce-core-xd36uwybpa-an.a.run.app/v1/normalize_web_data" \
+     -H "Content-Type: application/json" \
+     -H "X-Internal-Secret: <INTERNAL_GATEWAY_SECRET>" \
+     -H "X-Tenant-Id: <HASHED_TENANT_ID>" \
+     -d '{
+           "url": "https://sakutto.works",
+           "format_type": "json",
+           "target_tier": "tier_a1",
+           "webhook": {
+               "url": "https://your-server.com/webhook",
+               "secret_token": "my_secure_token"
+           }
+         }'
+```
+
+Immediate Response (HTTP 202 Accepted):
+
+```json
+{
+  "success": true,
+  "job_id": "job_a1b2c3d4...",
+  "message": "Job queued successfully. Results will be posted to https://your-server.com/webhook"
+}
+```
+
 ### 2. Example Success Response (NormalizeResponse)
 
 ```json

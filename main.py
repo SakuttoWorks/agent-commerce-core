@@ -2,28 +2,40 @@ import json
 import logging
 import os
 import sys
+import uuid
 from datetime import datetime, timezone
 
 import httpx
 from dotenv import load_dotenv
-
-load_dotenv()
-
-# --- Cleaned Project Imports ---
-from app.models.schemas import AgentSemanticError, NormalizeRequest, NormalizeResponse
-from app.tools.gemini_normalizer import normalizer
-from app.tools.web_search import search_web
-from app.utils.guardian import data_guardian, verify_gateway
-from app.utils.trust_metrics import calculate_hybrid_trust_score
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Query,
+    Request,
+    status,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-# --- 1. Environment & Structured Logging ---
 load_dotenv()
 
+# --- Cleaned Project Imports ---
+from app.models.schemas import (
+    AgentSemanticError,
+    AsyncJobResponse,
+    NormalizeRequest,
+    NormalizeResponse,
+)
+from app.tools.gemini_normalizer import normalizer
+from app.tools.web_search import search_web
+from app.utils.guardian import data_guardian, verify_gateway
+from app.utils.trust_metrics import calculate_hybrid_trust_score
 
+
+# --- 1. Environment & Structured Logging ---
 class JsonFormatter(logging.Formatter):
     def format(self, record):
         log_obj = {
@@ -46,7 +58,7 @@ logger = logging.getLogger("agent-commerce-core.main")
 app = FastAPI(
     title="Agent-Commerce-OS Core",
     description="Layer B: High-performance Data Normalization Engine (Stateless)",
-    version="3.0.0",
+    version="4.0.0",
     docs_url="/docs",
 )
 
@@ -83,7 +95,6 @@ async def semantic_http_exception_handler(request: Request, exc: HTTPException):
         error_type = "rate_limit_exceeded"
         instruction = "Wait for at least 60 seconds (Retry-After) before attempting another request."
 
-    # Check if the detail is already structured as our AgentSemanticError payload
     if isinstance(exc.detail, dict) and "error_type" in exc.detail:
         semantic_error = AgentSemanticError(**exc.detail)
     else:
@@ -121,15 +132,12 @@ async def semantic_validation_exception_handler(
 
 # --- 4. Network Security & Reachability Module ---
 async def verify_url_is_live(url: str):
-    """Validates if the target URL is reachable (HTTP 200) before delegating to extraction APIs."""
-    # Add a standard browser User-Agent to bypass basic Bot protections (like Wikipedia's 403 Forbidden)
+    """Validates if the target URL is reachable before delegating to extraction APIs."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
     }
     try:
-        # Disable SSL verification (verify=False) and apply headers
         async with httpx.AsyncClient(verify=False, headers=headers) as client:
-            # HEAD request is optimal, but some servers block it, so we fallback to GET
             response = await client.head(url, follow_redirects=True, timeout=10.0)
             if response.status_code >= 400:
                 response = await client.get(url, follow_redirects=True, timeout=10.0)
@@ -155,13 +163,10 @@ async def verify_url_is_live(url: str):
 
 # --- 5. Advanced Extraction Modules ---
 async def extract_via_jina(url: str) -> str | None:
-    """Uses Jina Reader API for ultra-fast, LLM-optimized Markdown extraction."""
     jina_key = os.getenv("JINA_API_KEY")
     if not jina_key:
         return None
-
     headers = {"Authorization": f"Bearer {jina_key}", "X-Return-Format": "markdown"}
-
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -179,17 +184,14 @@ async def extract_via_jina(url: str) -> str | None:
 
 
 async def extract_via_firecrawl(url: str) -> str | None:
-    """Uses Firecrawl API as a robust secondary scraper if Jina fails."""
     firecrawl_key = os.getenv("FIRECRAWL_API_KEY")
     if not firecrawl_key:
         return None
-
     headers = {
         "Authorization": f"Bearer {firecrawl_key}",
         "Content-Type": "application/json",
     }
     payload = {"url": url, "formats": ["markdown"]}
-
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -208,50 +210,24 @@ async def extract_via_firecrawl(url: str) -> str | None:
     return None
 
 
-# --- 6. API Endpoints ---
-@app.get("/")
-async def health_check():
-    return {
-        "status": "online",
-        "service": "Agent-Commerce-OS Layer B",
-        "version": "3.0.0",
-    }
-
-
-@app.post("/v1/normalize_web_data", response_model=NormalizeResponse)
-async def normalize_web_data_endpoint(
-    request: NormalizeRequest,
-    tenant_id: str = Depends(verify_gateway),  # Zero-Trust Security Gateway
-    fields: str | None = Query(
-        default=None, description="Comma-separated fields to extract (Lite GraphQL)"
-    ),
-):
-    """
-    [CRITICAL TASK 2 & 3] The Main Normalization Pipeline.
-    Implements a fallback strategy: URL Verification -> Jina Reader -> Firecrawl -> Tavily.
-    """
-    logger.info(
-        f"Processing normalization request for tenant: {tenant_id}, URL: {request.url}, fields: {fields}"
-    )
-
-    # 1. Compliance Check (Fail fast if prohibited terms are found)
+# --- 6. Core Logic Pipeline (Separated for Sync/Async reuse) ---
+async def execute_normalization_pipeline(
+    request: NormalizeRequest, tenant_id: str, fields: str | None
+) -> NormalizeResponse:
+    """Executes the core fallback strategy and normalization logic."""
     data_guardian.enforce_compliance(request.url)
-
-    # 2. Strict HTTP Status Check (Prevent Hallucinations & Wasted Tokens)
     await verify_url_is_live(request.url)
 
     combined_raw_text = ""
     fetched_at = None
     extraction_route = "unknown"
 
-    # 3. Strategy A: Try Jina Reader first (Fastest, best for single pages)
     logger.info("Attempting extraction via Jina Reader...")
     jina_text = await extract_via_jina(request.url)
     if jina_text:
         combined_raw_text = f"Source: {request.url}\nContent: {jina_text}"
         extraction_route = "jina"
 
-    # 4. Strategy B: Fallback to Firecrawl (Robust scraping)
     if not combined_raw_text.strip():
         logger.info("Jina failed or skipped. Attempting Firecrawl...")
         firecrawl_text = await extract_via_firecrawl(request.url)
@@ -259,11 +235,8 @@ async def normalize_web_data_endpoint(
             combined_raw_text = f"Source: {request.url}\nContent: {firecrawl_text}"
             extraction_route = "firecrawl"
 
-    # 5. Strategy C: Fallback to Tavily (Web Search Engine)
     if not combined_raw_text.strip():
-        logger.info(
-            "Extraction APIs failed or skipped. Falling back to Tavily Web Search..."
-        )
+        logger.info("Extraction APIs failed. Falling back to Tavily Web Search...")
         search_json_str = search_web(request.url)
         try:
             search_result = json.loads(search_json_str)
@@ -271,7 +244,6 @@ async def normalize_web_data_endpoint(
                 raise HTTPException(
                     status_code=500, detail=search_result.get("message")
                 )
-
             results = search_result.get("results", [])
             combined_raw_text = "\n\n".join(
                 [
@@ -294,59 +266,43 @@ async def normalize_web_data_endpoint(
 
     data_guardian.enforce_compliance(combined_raw_text)
 
-    # 6. Gemini Normalization Engine (Schema Filtering via Requested Fields)
+    # Note: Deep research (Tier A-1) forces Pro model internally in the normalizer
     success, extracted_data, meta = normalizer.normalize(
         raw_text=combined_raw_text,
         format_type=request.format_type,
         use_pro_model=False,
         requested_fields=fields,
+        target_tier=request.target_tier,
     )
 
     if not success:
         status_code = meta.get("status_code", 500)
         error_msg = meta.get("error", "AI Normalization failed")
-
         if status_code == 429:
             raise HTTPException(
                 status_code=429,
                 detail={
                     "error_type": "rate_limit_exceeded",
                     "message": "The upstream AI provider is currently out of quota.",
-                    "agent_instruction": "CRITICAL: Rate limit exceeded. Wait for the Retry-After duration (60 seconds) before sending another request.",
+                    "agent_instruction": "CRITICAL: Rate limit exceeded. Wait 60 seconds before retrying.",
                 },
-                headers={"Retry-After": "60"},
             )
-
         raise HTTPException(status_code=status_code, detail=error_msg)
 
-    # 7. Lite GraphQL Filtering (Post-processing Schema Filtering)
     if fields and isinstance(extracted_data, str):
         try:
-            # Parse the stringified JSON returned by the normalizer
             parsed_data = json.loads(extracted_data)
             requested_keys = [key.strip() for key in fields.split(",") if key.strip()]
-
             if requested_keys and isinstance(parsed_data, dict):
                 filtered_data = {
                     k: v for k, v in parsed_data.items() if k in requested_keys
                 }
-
-                # Fallback: if the filtered dictionary is empty, return the original full data
-                if not filtered_data:
-                    logger.warning(
-                        f"Requested fields '{fields}' not found in the extracted data. Falling back to full payload."
-                    )
-                    extracted_data = parsed_data  # Return as dict
-                else:
-                    extracted_data = filtered_data  # Return filtered dict
+                extracted_data = filtered_data if filtered_data else parsed_data
             else:
-                extracted_data = parsed_data  # Return parsed dict if keys were empty
+                extracted_data = parsed_data
         except json.JSONDecodeError:
-            logger.info(
-                "Extraction result is not valid JSON; skipping field filtering."
-            )
+            pass
 
-    # 8. Calculate Metrics: Data Freshness & Hybrid Trust Score
     freshness_seconds = None
     if fetched_at:
         try:
@@ -360,8 +316,6 @@ async def normalize_web_data_endpoint(
 
     meta["extraction_route"] = extraction_route
     llm_trust_score = meta.pop("trust_score", 1.0)
-
-    # Calculate deterministic hybrid score
     final_hybrid_score = calculate_hybrid_trust_score(
         llm_score=llm_trust_score,
         extraction_route=extraction_route,
@@ -369,8 +323,6 @@ async def normalize_web_data_endpoint(
     )
 
     current_timestamp = datetime.now(timezone.utc).isoformat()
-
-    # Return formatted response (Strictly adheres to NormalizeResponse schema)
     return NormalizeResponse(
         success=True,
         data=extracted_data,
@@ -379,6 +331,91 @@ async def normalize_web_data_endpoint(
         trust_score=final_hybrid_score,
         metadata=meta,
     )
+
+
+# --- 7. Async Background Worker ---
+async def dispatch_webhook_payload(
+    job_id: str, request: NormalizeRequest, tenant_id: str, fields: str | None
+):
+    """Executes the pipeline in the background and POSTs the result to the webhook URL."""
+    webhook_url = request.webhook.url
+    headers = {"Content-Type": "application/json"}
+    if request.webhook.secret_token:
+        headers["Authorization"] = f"Bearer {request.webhook.secret_token}"
+
+    try:
+        result = await execute_normalization_pipeline(request, tenant_id, fields)
+        payload = result.model_dump()
+        payload["job_id"] = job_id
+    except HTTPException as e:
+        logger.error(f"Async Job {job_id} failed with HTTP exception: {e.detail}")
+        payload = {"success": False, "job_id": job_id, "error": e.detail}
+    except Exception as e:
+        logger.error(f"Async Job {job_id} failed with unexpected error: {e}")
+        payload = {"success": False, "job_id": job_id, "error": str(e)}
+
+    # Send the result to the Webhook URL
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                webhook_url, json=payload, headers=headers, timeout=30.0
+            )
+            if response.status_code >= 400:
+                logger.warning(
+                    f"Failed to deliver webhook for job {job_id}. Status: {response.status_code}"
+                )
+            else:
+                logger.info(f"Successfully delivered webhook for job {job_id}.")
+    except Exception as network_err:
+        logger.error(
+            f"Webhook delivery failed for job {job_id} due to network error: {network_err}"
+        )
+
+
+# --- 8. API Endpoints ---
+@app.get("/")
+async def health_check():
+    return {
+        "status": "online",
+        "service": "Agent-Commerce-OS Layer B",
+        "version": "4.0.0",
+    }
+
+
+@app.post("/v1/normalize_web_data", response_model=NormalizeResponse | AsyncJobResponse)
+async def normalize_web_data_endpoint(
+    request: NormalizeRequest,
+    background_tasks: BackgroundTasks,
+    tenant_id: str = Depends(verify_gateway),
+    fields: str | None = Query(
+        default=None, description="Comma-separated fields to extract (Lite GraphQL)"
+    ),
+):
+    """
+    The Main Normalization Pipeline. Supports synchronous responses or Async Webhooks.
+    """
+    logger.info(
+        f"Processing normalization request for tenant: {tenant_id}, URL: {request.url}, tier: {request.target_tier}"
+    )
+
+    # If a webhook URL is provided, return Job ID immediately and process in background
+    if request.webhook and request.webhook.url:
+        job_id = f"job_{uuid.uuid4().hex}"
+        background_tasks.add_task(
+            dispatch_webhook_payload, job_id, request, tenant_id, fields
+        )
+
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content=AsyncJobResponse(
+                success=True,
+                job_id=job_id,
+                message=f"Job queued successfully. Results will be posted to {request.webhook.url}",
+            ).model_dump(),
+        )
+
+    # Standard Synchronous Execution
+    return await execute_normalization_pipeline(request, tenant_id, fields)
 
 
 if __name__ == "__main__":

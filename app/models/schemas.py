@@ -23,15 +23,40 @@ class AgentSemanticError(BaseModel):
 
 
 # ==========================================
-# 2. Input/Request Models (Matches Layer C MCP / Layer A Gateway)
+# 2. Webhook & Async Task Models
+# ==========================================
+class WebhookConfig(BaseModel):
+    """Configuration for asynchronous webhook delivery."""
+
+    url: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
+        ...,
+        description="The secure HTTPS endpoint to receive the normalized payload upon completion.",
+    )
+    secret_token: str | None = Field(
+        default=None,
+        description="Optional bearer token for webhook endpoint authentication.",
+    )
+
+
+class AsyncJobResponse(BaseModel):
+    """Immediate response returned when a webhook configuration is provided."""
+
+    success: bool = Field(
+        default=True, description="Indicates the job was successfully queued."
+    )
+    job_id: str = Field(
+        ..., description="Unique identifier for the background extraction task."
+    )
+    message: str = Field(..., description="Status message explaining the async flow.")
+
+
+# ==========================================
+# 3. Input/Request Models (Matches Layer C MCP / Layer A Gateway)
 # ==========================================
 class NormalizeRequest(BaseModel):
     """
     Payload for the primary normalization and extraction engine.
     Must perfectly match the inputSchema defined in Layer C's MCP endpoint and forwarded by Layer A's Gateway.
-
-    Note: 'fields' (Lite GraphQL feature) is handled dynamically as a query parameter
-    in the FastAPI endpoint routing, and thus is intentionally excluded from this body schema.
     """
 
     url: Annotated[str, StringConstraints(strip_whitespace=True)] = Field(
@@ -43,10 +68,18 @@ class NormalizeRequest(BaseModel):
         default="markdown",
         description="Desired output format. Supported values: 'json', 'markdown'.",
     )
+    target_tier: str = Field(
+        default="standard",
+        description="Specifies the extraction tier. Options: 'standard', 'tier_a1' (deep research), 'tier_a2' (actionable), 'tier_a3' (compliance).",
+    )
+    webhook: WebhookConfig | None = Field(
+        default=None,
+        description="Optional: Provide this configuration to trigger asynchronous processing. A Job ID will be returned immediately, and results will be POSTed to the webhook URL.",
+    )
 
 
 # ==========================================
-# 3. Output/Response Models
+# 4. Output/Response Models
 # ==========================================
 class NormalizeResponse(BaseModel):
     """
