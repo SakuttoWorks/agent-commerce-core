@@ -132,6 +132,7 @@ Immediate Response (HTTP 202 Accepted):
   "source_url": "https://sakutto.works",
   "timestamp": "2026-04-10T07:14:08+00:00",
   "trust_score": 0.98,
+  "trace_id": "92b3a1db-a3ad-4acd-95d4-5dd8019715ff",
   "metadata": {
     "engine": "gemini-3.1-pro",
     "format": "json",
@@ -148,7 +149,8 @@ Designed for autonomous AI agents to self-correct based on standardized instruct
 {
   "error_type": "compliance_violation",
   "message": "Request blocked due to compliance policy. Forbidden term detected.",
-  "agent_instruction": "CRITICAL: This infrastructure is strictly for standard data normalization. Alter your prompt and remove prohibited terms before retrying."
+  "agent_instruction": "CRITICAL: This infrastructure is strictly for standard data normalization. Alter your prompt and remove prohibited terms before retrying.",
+  "trace_id": "92b3a1db-a3ad-4acd-95d4-5dd8019715ff"
 }
 ```
 

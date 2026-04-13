@@ -19,24 +19,26 @@ async def verify_gateway(
     x_tenant_id: str = Header(
         ..., description="SHA-256 hashed Tenant ID passed from Layer A."
     ),
-) -> str:
+    x_trace_id: str = Header(
+        default="unknown-trace-id", description="Trace ID for end-to-end observability."
+    ),
+) -> dict:
     """
     FastAPI Dependency: Ensures the request is genuinely routed through Layer A.
-    Returns the tenant_id for logging/isolation purposes if successful.
+    Returns the tenant_id and trace_id for logging/isolation purposes if successful.
     """
-    # 🚨 修正ポイント: サーバー起動時ではなく、リクエスト実行時（関数呼び出し時）に環境変数を取得する
     internal_secret = os.getenv("INTERNAL_AUTH_SECRET", "")
 
     if x_internal_secret != internal_secret:
         logger.critical(
-            f"🚨 SECURITY BREACH ATTEMPT: Invalid internal secret from Tenant {x_tenant_id}"
+            f"🚨 SECURITY BREACH ATTEMPT: Invalid internal secret from Tenant {x_tenant_id}. Trace: {x_trace_id}"
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied. Invalid internal gateway secret. Direct access to Layer B is prohibited.",
         )
 
-    return x_tenant_id
+    return {"tenant_id": x_tenant_id, "trace_id": x_trace_id}
 
 
 # ==========================================
@@ -83,7 +85,6 @@ class DataGuardian:
         if not text or not str(text).strip():
             return
 
-        # 🚨 FIX: Decode strings in case AI sends URL-encoded text
         decoded_text = urllib.parse.unquote(str(text))
 
         match = self.compliance_regex.search(decoded_text)
@@ -93,7 +94,6 @@ class DataGuardian:
                 f"🚨 COMPLIANCE BLOCK: Forbidden term detected: '{forbidden_term}'"
             )
 
-            # Formatting error to match AgentSemanticError schema
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail={

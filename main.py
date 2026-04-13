@@ -77,6 +77,7 @@ async def semantic_http_exception_handler(request: Request, exc: HTTPException):
     """Translates standard HTTP errors into AI-friendly Semantic Errors with resilient headers."""
     error_type = "api_error"
     instruction = "Please review your request parameters and try again."
+    trace_id = request.headers.get("X-Trace-Id", "unknown-trace-id")
 
     if exc.status_code == 400:
         error_type = "bad_request"
@@ -108,9 +109,12 @@ async def semantic_http_exception_handler(request: Request, exc: HTTPException):
     if exc.status_code == 429 and "Retry-After" not in headers:
         headers["Retry-After"] = "60"
 
+    response_content = semantic_error.model_dump()
+    response_content["trace_id"] = trace_id
+
     return JSONResponse(
         status_code=exc.status_code,
-        content=semantic_error.model_dump(),
+        content=response_content,
         headers=headers,
     )
 
@@ -119,14 +123,18 @@ async def semantic_http_exception_handler(request: Request, exc: HTTPException):
 async def semantic_validation_exception_handler(
     request: Request, exc: RequestValidationError
 ):
+    trace_id = request.headers.get("X-Trace-Id", "unknown-trace-id")
     semantic_error = AgentSemanticError(
         error_type="schema_mismatch",
         message=f"Invalid payload structure: {exc.errors()}",
         agent_instruction="Correct your JSON payload to match the expected schema (url, format_type) before retrying.",
     )
+    response_content = semantic_error.model_dump()
+    response_content["trace_id"] = trace_id
+
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        content=semantic_error.model_dump(),
+        content=response_content,
     )
 
 
@@ -266,7 +274,6 @@ async def execute_normalization_pipeline(
 
     data_guardian.enforce_compliance(combined_raw_text)
 
-    # Note: Deep research (Tier A-1) forces Pro model internally in the normalizer
     success, extracted_data, meta = normalizer.normalize(
         raw_text=combined_raw_text,
         format_type=request.format_type,
@@ -335,7 +342,11 @@ async def execute_normalization_pipeline(
 
 # --- 7. Async Background Worker ---
 async def dispatch_webhook_payload(
-    job_id: str, request: NormalizeRequest, tenant_id: str, fields: str | None
+    job_id: str,
+    request: NormalizeRequest,
+    tenant_id: str,
+    trace_id: str,
+    fields: str | None,
 ):
     """Executes the pipeline in the background and POSTs the result to the webhook URL."""
     webhook_url = request.webhook.url
@@ -347,14 +358,24 @@ async def dispatch_webhook_payload(
         result = await execute_normalization_pipeline(request, tenant_id, fields)
         payload = result.model_dump()
         payload["job_id"] = job_id
+        payload["trace_id"] = trace_id
     except HTTPException as e:
         logger.error(f"Async Job {job_id} failed with HTTP exception: {e.detail}")
-        payload = {"success": False, "job_id": job_id, "error": e.detail}
+        payload = {
+            "success": False,
+            "job_id": job_id,
+            "error": e.detail,
+            "trace_id": trace_id,
+        }
     except Exception as e:
         logger.error(f"Async Job {job_id} failed with unexpected error: {e}")
-        payload = {"success": False, "job_id": job_id, "error": str(e)}
+        payload = {
+            "success": False,
+            "job_id": job_id,
+            "error": str(e),
+            "trace_id": trace_id,
+        }
 
-    # Send the result to the Webhook URL
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -382,11 +403,11 @@ async def health_check():
     }
 
 
-@app.post("/v1/normalize_web_data", response_model=NormalizeResponse | AsyncJobResponse)
+@app.post("/v1/normalize_web_data")
 async def normalize_web_data_endpoint(
     request: NormalizeRequest,
     background_tasks: BackgroundTasks,
-    tenant_id: str = Depends(verify_gateway),
+    gateway_data: dict = Depends(verify_gateway),
     fields: str | None = Query(
         default=None, description="Comma-separated fields to extract (Lite GraphQL)"
     ),
@@ -394,28 +415,36 @@ async def normalize_web_data_endpoint(
     """
     The Main Normalization Pipeline. Supports synchronous responses or Async Webhooks.
     """
+    tenant_id = gateway_data["tenant_id"]
+    trace_id = gateway_data["trace_id"]
+
     logger.info(
-        f"Processing normalization request for tenant: {tenant_id}, URL: {request.url}, tier: {request.target_tier}"
+        f"Processing normalization request for tenant: {tenant_id}, trace: {trace_id}, URL: {request.url}, tier: {request.target_tier}"
     )
 
-    # If a webhook URL is provided, return Job ID immediately and process in background
     if request.webhook and request.webhook.url:
         job_id = f"job_{uuid.uuid4().hex}"
         background_tasks.add_task(
-            dispatch_webhook_payload, job_id, request, tenant_id, fields
+            dispatch_webhook_payload, job_id, request, tenant_id, trace_id, fields
         )
+
+        response_payload = AsyncJobResponse(
+            success=True,
+            job_id=job_id,
+            message=f"Job queued successfully. Results will be posted to {request.webhook.url}",
+        ).model_dump()
+        response_payload["trace_id"] = trace_id
 
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
-            content=AsyncJobResponse(
-                success=True,
-                job_id=job_id,
-                message=f"Job queued successfully. Results will be posted to {request.webhook.url}",
-            ).model_dump(),
+            content=response_payload,
         )
 
-    # Standard Synchronous Execution
-    return await execute_normalization_pipeline(request, tenant_id, fields)
+    result = await execute_normalization_pipeline(request, tenant_id, fields)
+    response_payload = result.model_dump()
+    response_payload["trace_id"] = trace_id
+
+    return JSONResponse(status_code=status.HTTP_200_OK, content=response_payload)
 
 
 if __name__ == "__main__":
