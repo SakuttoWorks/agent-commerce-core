@@ -102,7 +102,7 @@ curl -X POST "https://agent-commerce-core-xd36uwybpa-an.a.run.app/v1/normalize_w
            "format_type": "json",
            "target_tier": "tier_a1",
            "webhook": {
-               "url": "https://your-server.com/webhook",
+               "url": "https://api.sakutto.works/webhook",
                "secret_token": "my_secure_token"
            }
          }'
@@ -114,7 +114,7 @@ Immediate Response (HTTP 202 Accepted):
 {
   "success": true,
   "job_id": "job_a1b2c3d4...",
-  "message": "Job queued successfully. Results will be posted to https://your-server.com/webhook"
+  "message": "Job queued successfully. Results will be posted to https://api.sakutto.works/webhook"
 }
 ```
 
